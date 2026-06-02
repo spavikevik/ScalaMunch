@@ -29,6 +29,47 @@ ScalaMunch assembles that context from the index in **~80 tokens** instead of th
 
 ---
 
+## Releases
+
+Pre-built JARs are available on the [GitHub Releases page](https://github.com/spavikevik/ScalaMunch/releases).
+
+**Prerequisites:** Java 21+
+
+### Option A — Download JARs (no build required)
+
+Download `scala-munch-cli-assembly.jar` and `scala-munch-mcp-assembly.jar` from the latest release assets.
+
+```bash
+java -jar scala-munch-cli-assembly.jar build src/main/scala --db .scala-munch.db
+java -jar scala-munch-mcp-assembly.jar --db .scala-munch.db   # MCP stdio server
+```
+
+### Option B — GitHub Packages (MCP server + sbt plugin)
+
+Add credentials to `~/.sbt/1.0/credentials.sbt` (requires a [GitHub PAT](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-apache-maven-registry#authenticating-to-github-packages) with `read:packages`):
+
+```scala
+credentials += Credentials("GitHub Package Registry", "maven.pkg.github.com",
+  "<your-github-username>", "<your-PAT>")
+```
+
+In `project/plugins.sbt`:
+
+```scala
+resolvers += "GitHub Packages" at "https://maven.pkg.github.com/spavikevik/ScalaMunch"
+addSbtPlugin("io.scalamunch" % "sbt-scala-munch" % "0.1.0-alpha.1")
+```
+
+### Option C — Build from source
+
+```bash
+git clone https://github.com/spavikevik/ScalaMunch
+cd ScalaMunch
+bin/install.sh      # builds assembly jars (~2 min first run)
+```
+
+---
+
 ## Architecture
 
 ```
@@ -63,19 +104,6 @@ ScalaMunch assembles that context from the index in **~80 tokens** instead of th
 
 ## Quick Start
 
-### Prerequisites
-
-- Java 11+
-- sbt 1.9+
-
-### Install
-
-```bash
-git clone https://github.com/your-org/scala-munch
-cd scala-munch
-bin/install.sh      # builds assembly jars (~2 min first run)
-```
-
 ### Index Your Codebase
 
 ```bash
@@ -94,16 +122,13 @@ bin/scala-munch watch src/main/scala --db .scala-munch.db
 
 > **Tip:** Add `.scala-munch.db` to your `.gitignore`.
 
-### sbt Plugin (optional — auto-index after compile)
-
-```bash
-sbt sbtScalaMunch/publishLocal
-```
+### sbt Plugin (auto-index after compile)
 
 In your project's `project/plugins.sbt`:
 
 ```scala
-addSbtPlugin("io.scalamunch" % "sbt-scala-munch" % "0.1.0-SNAPSHOT")
+resolvers += "GitHub Packages" at "https://maven.pkg.github.com/spavikevik/ScalaMunch"
+addSbtPlugin("io.scalamunch" % "sbt-scala-munch" % "0.1.0-alpha.1")
 ```
 
 In `build.sbt`:
@@ -397,18 +422,6 @@ Realistic across a full session (mix of reads and writes): **40–55%** reductio
 
 ---
 
-## Roadmap
-
-| Phase | Status | Description |
-|-------|--------|-------------|
-| **Phase 1** | ✅ Complete | Core indexer, SQLite store, CLI |
-| **Phase 2** | ✅ Complete | MCP server (stdio), 8 tools, Claude Code / Copilot integration |
-| **Phase 3** | ✅ Complete | Type graph, implicit index, SemanticDB integration, Hoogle-style search |
-| **Phase 4** | ✅ Complete | Incremental watch (NIO), write-lock, sbt plugin (`sbt-scala-munch`) |
-| **Phase 5** | ✅ Complete | Assembly jars, Claude Code + Copilot + Cursor MCP setup, install script |
-
----
-
 ## Development
 
 ### Project Structure
@@ -486,7 +499,7 @@ sbt assembly
 | Scala 2 support | ✅ | ❌ | ✅ |
 | Scala 3 TASTy | ✅ | ❌ | Partial |
 | MCP server | ✅ | ✅ | ❌ |
-| Incremental updates | ✅ (Phase 4) | ✅ | ✅ |
+| Incremental updates | ✅ | ✅ | ✅ |
 
 ---
 
