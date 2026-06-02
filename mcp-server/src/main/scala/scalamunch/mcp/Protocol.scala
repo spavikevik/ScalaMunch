@@ -14,7 +14,7 @@ object RpcId:
     case Str(s) => s
     case _      => "0"
   given JsonDecoder[RpcId] = JsonDecoder[Json].map(fromJson)
-  given JsonEncoder[RpcId] = JsonEncoder[String].contramap(identity)
+  given JsonEncoder[RpcId] = JsonEncoder[String].contramap(id => id)
 
 case class RpcRequest(
   jsonrpc: String,
