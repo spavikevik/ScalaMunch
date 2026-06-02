@@ -120,7 +120,38 @@ object ToolDefs:
     )
   )
 
+  val listPackages = ToolDef(
+    name        = "list_packages",
+    description = "List all packages in the index with symbol counts, sorted by size. " +
+      "Use this first when exploring an unfamiliar codebase — find which packages exist " +
+      "before drilling into specific symbols with get_package_overview.",
+    inputSchema = ToolInputSchema(
+      typeName   = "object",
+      properties = Map(
+        "prefix" -> ToolParam("string",  "Filter to packages starting with this prefix, e.g. 'cats/'"),
+        "limit"  -> ToolParam("integer", "Maximum packages to return (default: 50)")
+      ),
+      required   = None
+    )
+  )
+
+  val getPackageOverview = ToolDef(
+    name        = "get_package_overview",
+    description = "Get all top-level symbols in a package, grouped by kind (Trait, Class, Object, Def…). " +
+      "Returns compressed signatures only — far cheaper than reading source files. " +
+      "Use after list_packages to understand the structure of a specific package.",
+    inputSchema = ToolInputSchema(
+      typeName   = "object",
+      properties = Map(
+        "package_fqn" -> ToolParam("string",  "Package FQN prefix, e.g. 'cats/' or 'scalamunch/store/'"),
+        "limit"       -> ToolParam("integer", "Max symbols per kind (default: 20)")
+      ),
+      required   = Some(List("package_fqn"))
+    )
+  )
+
   val allTools: List[ToolDef] = List(
     getSymbol, searchSymbols, searchByType, getTypeContext,
-    getImplicitsFor, findReferences, getCallGraph, expandContext
+    getImplicitsFor, findReferences, getCallGraph, expandContext,
+    listPackages, getPackageOverview
   )

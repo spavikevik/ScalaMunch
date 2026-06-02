@@ -27,6 +27,8 @@ trait IndexStore:
   def getImplicitsFor(typeFqn: String): Task[List[ImplicitEntry]]
   def invalidateFile(path: String): Task[Int]
   def getFileEntry(path: String): Task[Option[FileEntry]]
+  def listPackages: Task[List[(String, Int)]]
+  def getPackageSymbols(pkg: String, limit: Int = 50): Task[List[ScalaSymbol]]
   def stats: Task[IndexStats]
   def close: Task[Unit]
 
@@ -250,6 +252,30 @@ private class LiveIndexStore(conn: Connection, writeLock: Semaphore) extends Ind
     n
   })
 
+  def listPackages: Task[List[(String, Int)]] = ZIO.attempt {
+    val ps  = conn.prepareStatement("SELECT fqn FROM symbols WHERE fqn LIKE '%/%'")
+    val rs  = ps.executeQuery()
+    val buf = collection.mutable.Map.empty[String, Int]
+    while rs.next() do
+      val fqn  = rs.getString(1)
+      val i    = fqn.lastIndexOf('/')
+      val pkg  = if i >= 0 then fqn.substring(0, i + 1) else "_root_/"
+      buf(pkg) = buf.getOrElse(pkg, 0) + 1
+    rs.close(); ps.close()
+    buf.toList.sortBy(-_._2)
+  }
+
+  def getPackageSymbols(pkg: String, limit: Int = 50): Task[List[ScalaSymbol]] = ZIO.attempt {
+    val ps = conn.prepareStatement(Sql.packageSymbols)
+    ps.setString(1, s"$pkg%")
+    ps.setInt(2, limit)
+    val rs  = ps.executeQuery()
+    val buf = collection.mutable.ListBuffer.empty[ScalaSymbol]
+    while rs.next() do buf += rsToSymbol(rs)
+    rs.close(); ps.close()
+    buf.toList
+  }
+
   def stats: Task[IndexStats] = ZIO.attempt {
     def count(table: String): Int =
       val rs = conn.createStatement().executeQuery(s"SELECT COUNT(*) FROM $table")
@@ -354,3 +380,6 @@ private object Sql:
 
   val deleteByFile: String =
     "DELETE FROM symbols WHERE file = ?"
+
+  val packageSymbols: String =
+    "SELECT * FROM symbols WHERE fqn LIKE ? ORDER BY kind, name LIMIT ?"

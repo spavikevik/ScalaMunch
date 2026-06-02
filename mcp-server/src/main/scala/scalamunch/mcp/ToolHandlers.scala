@@ -19,8 +19,10 @@ object ToolHandlers:
       case "get_implicits_for" => getImplicitsFor(params, store)
       case "find_references"   => findReferences(params, store)
       case "get_call_graph"    => getCallGraph(params, store)
-      case "expand_context"    => expandContext(params, store)
-      case other               => ZIO.succeed(errorResult(s"Unknown tool: $other"))
+      case "expand_context"      => expandContext(params, store)
+      case "list_packages"       => listPackages(params, store)
+      case "get_package_overview" => getPackageOverview(params, store)
+      case other                 => ZIO.succeed(errorResult(s"Unknown tool: $other"))
 
   // ── tool implementations ────────────────────────────────────────────────────
 
@@ -138,6 +140,49 @@ object ToolHandlers:
         found  = syms.flatten
         text   = budgetedContext(found, budget)
       yield ToolResult(List(TextContent(text)))
+
+  private def listPackages(args: Json, store: IndexStore): Task[ToolResult] =
+    val prefix = args.str("prefix").getOrElse("")
+    val limit  = args.int("limit").getOrElse(50)
+    store.listPackages.map { pkgs =>
+      val filtered = if prefix.isEmpty then pkgs else pkgs.filter(_._1.startsWith(prefix))
+      val top      = filtered.take(limit)
+      if top.isEmpty then ToolResult(List(TextContent("No packages found.")))
+      else
+        val lines = top.map { (pkg, cnt) =>
+          val display = pkg.stripSuffix("/").replace('/', '.')
+          f"  $display%-45s $cnt%4d symbols"
+        }
+        ToolResult(List(TextContent(
+          s"Packages (${top.size} of ${pkgs.size} total):\n\n" + lines.mkString("\n")
+        )))
+    }
+
+  private def getPackageOverview(args: Json, store: IndexStore): Task[ToolResult] =
+    val pkg   = args.str("package_fqn").getOrElse("")
+    val limit = args.int("limit").getOrElse(20)
+    if pkg.isEmpty then ZIO.succeed(errorResult("package_fqn is required"))
+    else
+      store.getPackageSymbols(pkg, limit * 8).map { syms =>
+        if syms.isEmpty then
+          ToolResult(List(TextContent(s"No symbols found in package $pkg. " +
+            "Check the FQN format: use 'cats/' not 'cats'.")))
+        else
+          val byKind = syms.groupBy(_.kind).toList.sortBy(_._1.toString)
+          val sb     = StringBuilder()
+          val pkgDisplay = pkg.stripSuffix("/").replace('/', '.')
+          sb.append(s"// Package $pkgDisplay — ${syms.size} symbols\n\n")
+          for (kind, group) <- byKind do
+            sb.append(s"// ── $kind (${group.size}) ──────────────────────\n")
+            group.take(limit).foreach { sym =>
+              sym.doc.foreach(d => sb.append(s"/** ${d.take(80)}${if d.length > 80 then "…" else ""} */\n"))
+              sb.append(sym.signature).append("\n")
+            }
+            if group.size > limit then
+              sb.append(s"// … ${group.size - limit} more\n")
+            sb.append("\n")
+          ToolResult(List(TextContent(sb.toString)))
+      }
 
   // ── rendering ────────────────────────────────────────────────────────────────
 

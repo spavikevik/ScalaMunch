@@ -6,7 +6,11 @@ project/project/
 
 # ── ScalaMunch index databases ───────────────────────────────────────────────
 *.scala-munch.db
+*.scala-munch.db-shm
+*.scala-munch.db-wal
 .scala-munch.db
+.scala-munch.db-shm
+.scala-munch.db-wal
 
 # ── IDE ──────────────────────────────────────────────────────────────────────
 .idea/
