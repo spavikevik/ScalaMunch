@@ -150,8 +150,37 @@ object ToolDefs:
     )
   )
 
+  val listTestSymbols = ToolDef(
+    name        = "list_test_symbols",
+    description = "List all symbols from test/spec files (*Spec.scala, *Test.scala, *Suite.scala). " +
+      "Groups by spec class showing what each test covers. Use to understand test structure " +
+      "or find which specs exist before checking for coverage gaps.",
+    inputSchema = ToolInputSchema(
+      typeName   = "object",
+      properties = Map(
+        "prefix" -> ToolParam("string",  "Filter to specs whose FQN starts with this prefix, e.g. 'scalamunch/store/'"),
+        "limit"  -> ToolParam("integer", "Maximum symbols to return (default: 300)")
+      ),
+      required   = None
+    )
+  )
+
+  val getCoverageGaps = ToolDef(
+    name        = "get_coverage_gaps",
+    description = "Find production types (classes, traits, objects) in a package that have no " +
+      "corresponding spec class. Heuristic: FooSpec / FooTest / TestFoo → covers Foo. " +
+      "Use after list_test_symbols to identify untested areas.",
+    inputSchema = ToolInputSchema(
+      typeName   = "object",
+      properties = Map(
+        "package_fqn" -> ToolParam("string", "Production package to check, e.g. 'scalamunch/store/'")
+      ),
+      required   = Some(List("package_fqn"))
+    )
+  )
+
   val allTools: List[ToolDef] = List(
     getSymbol, searchSymbols, searchByType, getTypeContext,
     getImplicitsFor, findReferences, getCallGraph, expandContext,
-    listPackages, getPackageOverview
+    listPackages, getPackageOverview, listTestSymbols, getCoverageGaps
   )

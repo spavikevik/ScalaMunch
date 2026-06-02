@@ -1,6 +1,6 @@
 package scalamunch.mcp
 
-import scalamunch.model.*
+import scalamunch.model.{*, given}
 import scalamunch.store.IndexStore
 import zio.*
 import zio.json.*
@@ -20,9 +20,11 @@ object ToolHandlers:
       case "find_references"   => findReferences(params, store)
       case "get_call_graph"    => getCallGraph(params, store)
       case "expand_context"      => expandContext(params, store)
-      case "list_packages"       => listPackages(params, store)
+      case "list_packages"        => listPackages(params, store)
       case "get_package_overview" => getPackageOverview(params, store)
-      case other                 => ZIO.succeed(errorResult(s"Unknown tool: $other"))
+      case "list_test_symbols"    => listTestSymbols(params, store)
+      case "get_coverage_gaps"    => getCoverageGaps(params, store)
+      case other                  => ZIO.succeed(errorResult(s"Unknown tool: $other"))
 
   // ── tool implementations ────────────────────────────────────────────────────
 
@@ -183,6 +185,68 @@ object ToolHandlers:
             sb.append("\n")
           ToolResult(List(TextContent(sb.toString)))
       }
+
+  private def listTestSymbols(args: Json, store: IndexStore): Task[ToolResult] =
+    val prefix = args.str("prefix").getOrElse("")
+    val limit  = args.int("limit").getOrElse(300)
+    store.getTestSymbols(limit).map { syms =>
+      val filtered = if prefix.isEmpty then syms
+                     else syms.filter(_.fqn.startsWith(prefix))
+      if filtered.isEmpty then ToolResult(List(TextContent("No test symbols found.")))
+      else
+        val byFile = filtered.groupBy(_.file).toList.sortBy(_._1)
+        val sb     = StringBuilder()
+        sb.append(s"// Test symbols — ${filtered.size} across ${byFile.size} spec files\n\n")
+        for (file, group) <- byFile do
+          val fileName = file.split("/").lastOption.getOrElse(file)
+          sb.append(s"// ── $fileName ──────────────────────\n")
+          val topLevel = group.filter(s => s.kind == SymbolKind.Object || s.kind == SymbolKind.Class)
+          val rest     = group.filterNot(s => s.kind == SymbolKind.Object || s.kind == SymbolKind.Class)
+          topLevel.foreach(s => sb.append(s"${s.signature}\n"))
+          rest.foreach(s => sb.append(s"  ${s.signature}\n"))
+          sb.append("\n")
+        ToolResult(List(TextContent(sb.toString)))
+    }
+
+  private def getCoverageGaps(args: Json, store: IndexStore): Task[ToolResult] =
+    val pkg = args.str("package_fqn").getOrElse("")
+    if pkg.isEmpty then ZIO.succeed(errorResult("package_fqn is required"))
+    else
+      for
+        prodTypes <- store.getProductionTypesFor(pkg)
+        testSyms  <- store.getTestSymbols(500)
+        covered   <- ZIO.attempt {
+                       // Build set of names that test files cover.
+                       // FooSpec / FooTest / FooCheck / FooSuite → covers "Foo"
+                       // Also check if the production name appears as substring in any test class name.
+                       val testNames = testSyms
+                         .filter(s => s.kind == SymbolKind.Object || s.kind == SymbolKind.Class)
+                         .flatMap { s =>
+                           val n = s.name
+                           val stripped = List("Spec", "Test", "Suite", "Check", "Tests")
+                             .foldLeft(n)((acc, suffix) => if acc.endsWith(suffix) then acc.dropRight(suffix.length) else acc)
+                           List(n, stripped)
+                         }.toSet
+                       prodTypes.partition(p => testNames.exists(t =>
+                         t == p.name || t.contains(p.name) || p.name.contains(t)
+                       ))
+                     }
+        (tested, gaps) = covered
+        text = if gaps.isEmpty then
+          s"// Full coverage: all ${prodTypes.size} types in ${displayFqn(pkg)} have matching specs.\n" +
+          tested.map(s => s"  ✓ ${s.name}").mkString("\n")
+        else
+          val sb = StringBuilder()
+          sb.append(s"// Coverage gaps in ${displayFqn(pkg)}\n")
+          sb.append(s"// ${tested.size} covered, ${gaps.size} missing test\n\n")
+          if tested.nonEmpty then
+            sb.append("// Covered:\n")
+            tested.foreach(s => sb.append(s"  ✓ [${s.kind}] ${s.name}  (${s.fqn})\n"))
+            sb.append("\n")
+          sb.append("// NOT covered — no matching Spec/Test/Suite/Check:\n")
+          gaps.foreach(s => sb.append(s"  ✗ [${s.kind}] ${s.name}  (${s.fqn})\n"))
+          sb.toString
+      yield ToolResult(List(TextContent(text)))
 
   // ── rendering ────────────────────────────────────────────────────────────────
 

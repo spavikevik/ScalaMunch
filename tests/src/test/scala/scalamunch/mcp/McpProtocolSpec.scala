@@ -53,7 +53,7 @@ object McpProtocolSpec extends ZIOSpecDefault:
           assertTrue(resp.exists(_.error.exists(_.code == -32601)))
       },
 
-      test("tools/list returns all 10 tools") {
+      test("tools/list returns all 12 tools") {
         val req = mkRequest(4, "tools/list", None)
         for
           store <- ZIO.service[IndexStore]
@@ -62,7 +62,7 @@ object McpProtocolSpec extends ZIOSpecDefault:
                      r.asObj.flatMap(m => m.find(_._1 == "tools").map(_._2))
                    }.collect { case Arr(elems) => elems.toList }
         yield
-          assertTrue(tools.exists(_.length == 10))
+          assertTrue(tools.exists(_.length == 12))
       },
 
       test("resources/list returns 2 resources") {

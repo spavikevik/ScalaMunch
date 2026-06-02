@@ -29,6 +29,8 @@ trait IndexStore:
   def getFileEntry(path: String): Task[Option[FileEntry]]
   def listPackages: Task[List[(String, Int)]]
   def getPackageSymbols(pkg: String, limit: Int = 50): Task[List[ScalaSymbol]]
+  def getTestSymbols(limit: Int = 300): Task[List[ScalaSymbol]]
+  def getProductionTypesFor(pkg: String): Task[List[ScalaSymbol]]
   def stats: Task[IndexStats]
   def close: Task[Unit]
 
@@ -276,6 +278,26 @@ private class LiveIndexStore(conn: Connection, writeLock: Semaphore) extends Ind
     buf.toList
   }
 
+  def getTestSymbols(limit: Int = 300): Task[List[ScalaSymbol]] = ZIO.attempt {
+    val ps  = conn.prepareStatement(Sql.testSymbols)
+    ps.setInt(1, limit)
+    val rs  = ps.executeQuery()
+    val buf = collection.mutable.ListBuffer.empty[ScalaSymbol]
+    while rs.next() do buf += rsToSymbol(rs)
+    rs.close(); ps.close()
+    buf.toList
+  }
+
+  def getProductionTypesFor(pkg: String): Task[List[ScalaSymbol]] = ZIO.attempt {
+    val ps = conn.prepareStatement(Sql.productionTypes)
+    ps.setString(1, s"$pkg%")
+    val rs  = ps.executeQuery()
+    val buf = collection.mutable.ListBuffer.empty[ScalaSymbol]
+    while rs.next() do buf += rsToSymbol(rs)
+    rs.close(); ps.close()
+    buf.toList
+  }
+
   def stats: Task[IndexStats] = ZIO.attempt {
     def count(table: String): Int =
       val st = conn.createStatement()
@@ -388,3 +410,26 @@ private object Sql:
 
   val packageSymbols: String =
     "SELECT * FROM symbols WHERE fqn LIKE ? ORDER BY kind, name LIMIT ?"
+
+  val testSymbols: String = """
+    SELECT * FROM symbols
+    WHERE file LIKE '%Spec.scala'
+       OR file LIKE '%Test.scala'
+       OR file LIKE '%Suite.scala'
+       OR file LIKE '%Check.scala'
+    ORDER BY file, kind, name
+    LIMIT ?
+  """
+
+  val productionTypes: String = """
+    SELECT * FROM symbols
+    WHERE fqn LIKE ?
+      AND kind IN ('Trait', 'Class', 'Object')
+      AND file NOT LIKE '%Spec.scala'
+      AND file NOT LIKE '%Test.scala'
+      AND file NOT LIKE '%Suite.scala'
+      AND file NOT LIKE '%Check.scala'
+      AND file NOT LIKE '%/test/%'
+      AND file NOT LIKE '%/it/%'
+    ORDER BY kind, name
+  """
