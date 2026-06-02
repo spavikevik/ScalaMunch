@@ -47,9 +47,12 @@ object Indexer:
     store: IndexStore
   ): Task[Boolean] =
     for
-      digest <- ZIO.attempt(fileDigest(file))
-      _      <- doIndex(file, digest, cfg, store)
-    yield true
+      digest   <- ZIO.attempt(fileDigest(file))
+      existing <- store.getFileEntry(file.toString)
+      upToDate  = !cfg.force && existing.exists(_.digest == digest)
+      indexed  <- if upToDate then ZIO.succeed(false)
+                  else doIndex(file, digest, cfg, store).as(true)
+    yield indexed
 
   private def doIndex(
     file: Path,

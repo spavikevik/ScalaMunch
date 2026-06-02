@@ -54,12 +54,26 @@ val statsCmd: Command[Action] = Command("stats", "Show index statistics") {
   dbOpt.map(Action.Stats.apply)
 }
 
+val watchCmd: Command[Action] = Command("watch", "Watch source tree and incrementally reindex on changes") {
+  (
+    Opts.argument[Path]("root"),
+    dbOpt,
+    Opts.flag("scala2", "Parse as Scala 2 (default: Scala 3)").orFalse,
+    Opts.flag("no-semanticdb", "Skip SemanticDB augmentation").orFalse,
+    Opts.flag("force", "Force rebuild on start").orFalse,
+    Opts.option[Long]("debounce", "Debounce window in ms").withDefault(300L),
+  ).mapN { (root, db, sc2, noSdb, force, debounce) =>
+    val sv = if sc2 then ScalaVersion.Scala2 else ScalaVersion.Scala3
+    Action.Watch(Watcher.WatchConfig(Indexer.IndexConfig(root, db, sv, !noSdb, force), debounce))
+  }
+}
+
 // ── App entry point ───────────────────────────────────────────────────────────
 object Main
     extends CommandApp(
       name    = "scala-munch",
       header  = "Type-driven Scala code index",
-      main    = Opts.subcommands(buildCmd, queryCmd, searchTypeCmd, statsCmd).map(runAction)
+      main    = Opts.subcommands(buildCmd, queryCmd, searchTypeCmd, statsCmd, watchCmd).map(runAction)
     )
 
 private def runAction(action: Action): Unit =
@@ -118,6 +132,9 @@ private def dispatch(action: Action): ZIO[Scope, Throwable, Unit] =
                  }
       yield ()
 
+    case Action.Watch(cfg) =>
+      Watcher.watch(cfg)
+
 private def printSymbol(sym: ScalaSymbol): Unit =
   println(s"[${sym.kind}] ${sym.signature}")
   println(s"  fqn : ${sym.fqn}")
@@ -131,3 +148,4 @@ enum Action:
   case Query(query: String, db: Path, limit: Int)
   case SearchType(sig: String, db: Path, limit: Int)
   case Stats(db: Path)
+  case Watch(cfg: Watcher.WatchConfig)

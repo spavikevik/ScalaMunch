@@ -55,8 +55,9 @@ ScalaMunch assembles that context from the index in **~80 tokens** instead of th
 |--------|---------|
 | `core` | Scalameta AST parser, SemanticDB protobuf reader, signature extractor |
 | `store` | SQLite + FTS5 storage, type dependency graph, implicit index |
-| `cli` | `build / query / search-type / stats` CLI commands |
+| `cli` | `build / query / search-type / stats / watch` CLI commands |
 | `mcp-server` | MCP stdio server exposing 8 tools to AI assistants |
+| `sbt-plugin` | `sbt-scala-munch` — `scalaMunchIndex` task, auto-index after compile |
 
 ---
 
@@ -65,40 +66,61 @@ ScalaMunch assembles that context from the index in **~80 tokens** instead of th
 ### Prerequisites
 
 - Java 11+
-- sbt 1.9+ or Scala CLI
+- sbt 1.9+
 
-### Build
+### Install
 
 ```bash
 git clone https://github.com/your-org/scala-munch
 cd scala-munch
-sbt cli/assembly   # produces cli/target/scala-3.3.3/scala-munch-cli-assembly.jar
-```
-
-Or run directly via sbt:
-
-```bash
-sbt "cli/runMain scalamunch.cli.Main build . --db .scala-munch.db"
+bin/install.sh      # builds assembly jars (~2 min first run)
 ```
 
 ### Index Your Codebase
 
 ```bash
-# Index current directory (Scala 3, default)
-scala-munch build . --db .scala-munch.db
+# Index current directory (Scala 3 project with SemanticDB)
+bin/scala-munch build src/main/scala --db .scala-munch.db
 
-# Index a Scala 2 project
-scala-munch build . --db .scala-munch.db --scala2
-
-# Include SemanticDB augmentation (must compile first)
-scala-munch build . --db .scala-munch.db
-# (SemanticDB is auto-detected under target/)
+# Scala 2 project
+bin/scala-munch build src/main/scala --db .scala-munch.db --scala2
 
 # Force full re-index
-scala-munch build . --db .scala-munch.db --force
+bin/scala-munch build src/main/scala --db .scala-munch.db --force
+
+# Watch mode — reindex on every save
+bin/scala-munch watch src/main/scala --db .scala-munch.db
 ```
 
 > **Tip:** Add `.scala-munch.db` to your `.gitignore`.
+
+### sbt Plugin (optional — auto-index after compile)
+
+```bash
+sbt sbtScalaMunch/publishLocal
+```
+
+In your project's `project/plugins.sbt`:
+
+```scala
+addSbtPlugin("io.scalamunch" % "sbt-scala-munch" % "0.1.0-SNAPSHOT")
+```
+
+In `build.sbt`:
+
+```scala
+.enablePlugins(ScalaMunchPlugin)
+// optional overrides:
+// scalaMunchDb := file(".scala-munch.db")
+// scalaMunchEnabled := true
+```
+
+Run compile + index in one step:
+
+```bash
+sbt scalaMunchIndex          # compile then index
+sbt ~scalaMunchIndex         # continuous: compile + index on every save
+```
 
 ---
 
@@ -160,7 +182,7 @@ scala-munch search-type "Option[Foo]" --db .scala-munch.db
 ### `stats` — Index statistics
 
 ```
-$ scala-munch stats
+$ bin/scala-munch stats
 
 Symbols   : 4,821
 Files     : 312
@@ -169,37 +191,88 @@ Type deps : 2,103
 Updated   : 2026-06-02T13:40:08Z
 ```
 
+### `watch` — Incremental watch mode
+
+```
+scala-munch watch <root> [options]
+
+Options:
+  --db <path>          Index DB path (default: .scala-munch.db)
+  --scala2             Parse as Scala 2
+  --no-semanticdb      Skip SemanticDB augmentation
+  --force              Rebuild index on start
+  --debounce <ms>      Debounce window in ms (default: 300)
+```
+
+Watches the source tree with NIO WatchService. On any `.scala` change, waits for the debounce window then reindexes only changed files. With SemanticDB enabled, picks up freshly compiled `.semanticdb` files automatically.
+
 ---
 
 ## MCP Server
 
 ScalaMunch exposes an MCP (Model Context Protocol) server over stdio, compatible with **Claude Code**, **GitHub Copilot**, **Cursor**, and any MCP-capable client.
 
-### Configure with Claude Code
+### Claude Code
 
-Add to your project's `.mcp.json`:
+After running `bin/install.sh`, the project-level `.mcp.json` is already configured:
 
 ```json
 {
   "mcpServers": {
     "scala-munch": {
       "type": "stdio",
-      "command": "java",
-      "args": ["-jar", "/path/to/scala-munch-assembly.jar", "mcp", "--db", ".scala-munch.db"]
+      "command": "bin/scala-munch-mcp",
+      "args": ["--db", ".scala-munch.db"]
     }
   }
 }
 ```
 
-Or via sbt (development):
+Reload: **Claude Code → Reload MCP Servers** (or reopen the workspace).
+
+For a **global** setup (all projects), add to `~/.claude/mcp.json`:
 
 ```json
 {
   "mcpServers": {
     "scala-munch": {
       "type": "stdio",
-      "command": "sbt",
-      "args": ["--client", "mcp-server/runMain scalamunch.mcp.McpMain --db .scala-munch.db"]
+      "command": "/absolute/path/to/scala-munch/bin/scala-munch-mcp",
+      "args": ["--db", ".scala-munch.db"]
+    }
+  }
+}
+```
+
+### GitHub Copilot (VS Code)
+
+The project-level `.vscode/mcp.json` is included:
+
+```json
+{
+  "servers": {
+    "scala-munch": {
+      "type": "stdio",
+      "command": "${workspaceFolder}/bin/scala-munch-mcp",
+      "args": ["--db", "${workspaceFolder}/.scala-munch.db"]
+    }
+  }
+}
+```
+
+VS Code picks this up automatically when the **MCP: Enable MCP Servers** setting is on (VS Code 1.99+). Copilot will list `scala-munch` tools in the chat tool picker.
+
+### Cursor
+
+Add to `.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "scala-munch": {
+      "type": "stdio",
+      "command": "bin/scala-munch-mcp",
+      "args": ["--db", ".scala-munch.db"]
     }
   }
 }
@@ -330,9 +403,9 @@ Realistic across a full session (mix of reads and writes): **40–55%** reductio
 |-------|--------|-------------|
 | **Phase 1** | ✅ Complete | Core indexer, SQLite store, CLI |
 | **Phase 2** | ✅ Complete | MCP server (stdio), 8 tools, Claude Code / Copilot integration |
-| **Phase 3** | Planned | TASTy reader, full type-context assembly, Hoogle search |
-| **Phase 4** | Planned | BSP incremental watch, sbt plugin, connection pool |
-| **Phase 5** | Planned | Type-driven Claude Code skill (context budget optimizer) |
+| **Phase 3** | ✅ Complete | Type graph, implicit index, SemanticDB integration, Hoogle-style search |
+| **Phase 4** | ✅ Complete | Incremental watch (NIO), write-lock, sbt plugin (`sbt-scala-munch`) |
+| **Phase 5** | ✅ Complete | Assembly jars, Claude Code + Copilot + Cursor MCP setup, install script |
 
 ---
 
@@ -343,6 +416,12 @@ Realistic across a full session (mix of reads and writes): **40–55%** reductio
 ```
 scala-munch/
 ├── build.sbt
+├── bin/
+│   ├── install.sh                 # build jars + first-time setup
+│   ├── scala-munch                # CLI wrapper (java -jar)
+│   └── scala-munch-mcp            # MCP server wrapper (java -jar)
+├── .mcp.json                      # Claude Code MCP config
+├── .vscode/mcp.json               # VS Code / Copilot MCP config
 ├── core/                          # Scalameta + SemanticDB parsing
 │   └── src/main/scala/scalamunch/
 │       ├── model/Symbol.scala     # Data model
@@ -351,17 +430,21 @@ scala-munch/
 ├── store/                         # SQLite storage
 │   └── src/main/scala/scalamunch/store/
 │       ├── Schema.scala           # DDL
-│       └── IndexStore.scala       # ZIO-wrapped JDBC
+│       └── IndexStore.scala       # ZIO-wrapped JDBC (Semaphore write lock)
 ├── cli/                           # CLI entry point
 │   └── src/main/scala/scalamunch/cli/
-│       ├── Indexer.scala          # File walker + parse loop
-│       └── Main.scala             # Decline CLI
-└── mcp-server/                    # MCP stdio server
-    └── src/main/scala/scalamunch/mcp/
-        ├── Protocol.scala         # JSON-RPC 2.0 types
-        ├── ToolDefs.scala         # Tool schemas
-        ├── ToolHandlers.scala     # Tool execution
-        └── McpServer.scala        # Stdio loop + dispatch
+│       ├── Indexer.scala          # File walker + digest-based skip
+│       ├── Watcher.scala          # NIO incremental watch + debounce
+│       └── Main.scala             # Decline CLI (build/query/search-type/stats/watch)
+├── mcp-server/                    # MCP stdio server
+│   └── src/main/scala/scalamunch/mcp/
+│       ├── Protocol.scala         # JSON-RPC 2.0 types
+│       ├── ToolDefs.scala         # Tool schemas
+│       ├── ToolHandlers.scala     # Tool execution
+│       └── McpServer.scala        # Stdio loop + dispatch
+└── sbt-plugin/                    # sbt plugin (Scala 2.12)
+    └── src/main/scala/scalamunch/sbt/
+        └── ScalaMunchPlugin.scala # scalaMunchIndex task
 ```
 
 ### Running Tests
@@ -401,7 +484,7 @@ sbt assembly
 | Hoogle-style search | ✅ | ❌ | ❌ |
 | Token budget assembly | ✅ | ❌ | ❌ |
 | Scala 2 support | ✅ | ❌ | ✅ |
-| Scala 3 TASTy | ✅ (Phase 3) | ❌ | Partial |
+| Scala 3 TASTy | ✅ | ❌ | Partial |
 | MCP server | ✅ | ✅ | ❌ |
 | Incremental updates | ✅ (Phase 4) | ✅ | ✅ |
 
@@ -409,4 +492,10 @@ sbt assembly
 
 ## License
 
-Apache 2.0
+Apache 2.0 — see [LICENSE](LICENSE).
+
+---
+
+## Acknowledgements
+
+Bootstrapped with [Claude Code](https://claude.ai/code) (Anthropic). Architecture, design decisions, and code review by Stefan Pavikjevikj.

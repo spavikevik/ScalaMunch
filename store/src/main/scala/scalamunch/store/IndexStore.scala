@@ -6,10 +6,11 @@ import zio.*
 import java.nio.file.Path
 import java.sql.{Connection, DriverManager, PreparedStatement, ResultSet}
 import java.time.Instant
+import zio.Semaphore
 
 /** SQLite-backed index store.
  *  Schema: symbols (FTS5) + type_deps + implicits + files.
- *  Thread-safety: ZIO fiber-safe via Semaphore on write path.
+ *  Write path serialized via Semaphore(1); reads are lock-free (WAL mode).
  */
 trait IndexStore:
   def upsertSymbol(sym: ScalaSymbol): Task[Unit]
@@ -25,6 +26,7 @@ trait IndexStore:
   def getTypeDeps(fqn: String): Task[List[TypeDep]]
   def getImplicitsFor(typeFqn: String): Task[List[ImplicitEntry]]
   def invalidateFile(path: String): Task[Int]
+  def getFileEntry(path: String): Task[Option[FileEntry]]
   def stats: Task[IndexStats]
   def close: Task[Unit]
 
@@ -32,30 +34,36 @@ object IndexStore:
 
   def open(dbPath: Path): ZIO[Scope, Throwable, IndexStore] =
     ZIO.acquireRelease(
-      ZIO.attempt {
-        Class.forName("org.sqlite.JDBC")
-        val url  = s"jdbc:sqlite:${dbPath.toAbsolutePath}"
-        val conn = DriverManager.getConnection(url)
-        val impl = LiveIndexStore(conn)
-        impl.initSchema()
-        impl
-      }
+      for
+        lock <- Semaphore.make(1)
+        impl <- ZIO.attempt {
+                  Class.forName("org.sqlite.JDBC")
+                  val url  = s"jdbc:sqlite:${dbPath.toAbsolutePath}"
+                  val conn = DriverManager.getConnection(url)
+                  val impl = LiveIndexStore(conn, lock)
+                  impl.initSchema()
+                  impl
+                }
+      yield impl
     )(store => store.close.orDie)
 
   def inMemory: ZIO[Scope, Throwable, IndexStore] =
     ZIO.acquireRelease(
-      ZIO.attempt {
-        Class.forName("org.sqlite.JDBC")
-        val conn = DriverManager.getConnection("jdbc:sqlite::memory:")
-        val impl = LiveIndexStore(conn)
-        impl.initSchema()
-        impl
-      }
+      for
+        lock <- Semaphore.make(1)
+        impl <- ZIO.attempt {
+                  Class.forName("org.sqlite.JDBC")
+                  val conn = DriverManager.getConnection("jdbc:sqlite::memory:")
+                  val impl = LiveIndexStore(conn, lock)
+                  impl.initSchema()
+                  impl
+                }
+      yield impl
     )(store => store.close.orDie)
 
 // ── live implementation ──────────────────────────────────────────────────
 
-private class LiveIndexStore(conn: Connection) extends IndexStore:
+private class LiveIndexStore(conn: Connection, writeLock: Semaphore) extends IndexStore:
 
   def initSchema(): Unit =
     // PRAGMAs (including WAL mode) must run outside any transaction.
@@ -70,15 +78,15 @@ private class LiveIndexStore(conn: Connection) extends IndexStore:
     conn.commit()
     st.close()
 
-  def upsertSymbol(sym: ScalaSymbol): Task[Unit] = ZIO.attempt {
+  def upsertSymbol(sym: ScalaSymbol): Task[Unit] = writeLock.withPermit(ZIO.attempt {
     val ps = conn.prepareStatement(Sql.upsertSymbol)
     bindSymbol(ps, sym)
     ps.executeUpdate()
     conn.commit()
     ps.close()
-  }
+  })
 
-  def upsertSymbols(syms: List[ScalaSymbol]): Task[Unit] = ZIO.attempt {
+  def upsertSymbols(syms: List[ScalaSymbol]): Task[Unit] = writeLock.withPermit(ZIO.attempt {
     val ps = conn.prepareStatement(Sql.upsertSymbol)
     syms.foreach { sym =>
       bindSymbol(ps, sym)
@@ -87,9 +95,9 @@ private class LiveIndexStore(conn: Connection) extends IndexStore:
     ps.executeBatch()
     conn.commit()
     ps.close()
-  }
+  })
 
-  def upsertTypeDep(dep: TypeDep): Task[Unit] = ZIO.attempt {
+  def upsertTypeDep(dep: TypeDep): Task[Unit] = writeLock.withPermit(ZIO.attempt {
     val ps = conn.prepareStatement(Sql.upsertTypeDep)
     ps.setString(1, dep.fromFqn)
     ps.setString(2, dep.toFqn)
@@ -97,9 +105,9 @@ private class LiveIndexStore(conn: Connection) extends IndexStore:
     ps.executeUpdate()
     conn.commit()
     ps.close()
-  }
+  })
 
-  def upsertTypeDeps(deps: List[TypeDep]): Task[Unit] = ZIO.attempt {
+  def upsertTypeDeps(deps: List[TypeDep]): Task[Unit] = writeLock.withPermit(ZIO.attempt {
     if deps.isEmpty then ()
     else
       val ps = conn.prepareStatement(Sql.upsertTypeDep)
@@ -112,9 +120,9 @@ private class LiveIndexStore(conn: Connection) extends IndexStore:
       ps.executeBatch()
       conn.commit()
       ps.close()
-  }
+  })
 
-  def upsertImplicits(entries: List[ImplicitEntry]): Task[Unit] = ZIO.attempt {
+  def upsertImplicits(entries: List[ImplicitEntry]): Task[Unit] = writeLock.withPermit(ZIO.attempt {
     if entries.isEmpty then ()
     else
       val ps = conn.prepareStatement(Sql.upsertImplicit)
@@ -128,9 +136,9 @@ private class LiveIndexStore(conn: Connection) extends IndexStore:
       ps.executeBatch()
       conn.commit()
       ps.close()
-  }
+  })
 
-  def upsertImplicit(entry: ImplicitEntry): Task[Unit] = ZIO.attempt {
+  def upsertImplicit(entry: ImplicitEntry): Task[Unit] = writeLock.withPermit(ZIO.attempt {
     val ps = conn.prepareStatement(Sql.upsertImplicit)
     ps.setString(1, entry.typeFqn)
     ps.setString(2, entry.paramFqn)
@@ -139,9 +147,9 @@ private class LiveIndexStore(conn: Connection) extends IndexStore:
     ps.executeUpdate()
     conn.commit()
     ps.close()
-  }
+  })
 
-  def upsertFile(entry: FileEntry): Task[Unit] = ZIO.attempt {
+  def upsertFile(entry: FileEntry): Task[Unit] = writeLock.withPermit(ZIO.attempt {
     val ps = conn.prepareStatement(Sql.upsertFile)
     ps.setString(1, entry.path)
     ps.setString(2, entry.digest)
@@ -151,7 +159,7 @@ private class LiveIndexStore(conn: Connection) extends IndexStore:
     ps.executeUpdate()
     conn.commit()
     ps.close()
-  }
+  })
 
   def getSymbol(fqn: String): Task[Option[ScalaSymbol]] = ZIO.attempt {
     val ps = conn.prepareStatement(Sql.getByFqn)
@@ -218,14 +226,29 @@ private class LiveIndexStore(conn: Connection) extends IndexStore:
     buf.toList
   }
 
-  def invalidateFile(path: String): Task[Int] = ZIO.attempt {
+  def getFileEntry(path: String): Task[Option[FileEntry]] = ZIO.attempt {
+    val ps = conn.prepareStatement("SELECT * FROM files WHERE path = ?")
+    ps.setString(1, path)
+    val rs = ps.executeQuery()
+    val entry = if rs.next() then Some(FileEntry(
+      path         = rs.getString("path"),
+      digest       = rs.getString("digest"),
+      scalaVersion = ScalaVersion.valueOf(rs.getString("scala_ver")),
+      symbolFqns   = csvList(rs.getString("symbol_fqns")),
+      indexedAt    = Instant.ofEpochMilli(rs.getLong("indexed_at"))
+    )) else None
+    rs.close(); ps.close()
+    entry
+  }
+
+  def invalidateFile(path: String): Task[Int] = writeLock.withPermit(ZIO.attempt {
     val ps = conn.prepareStatement(Sql.deleteByFile)
     ps.setString(1, path)
     val n = ps.executeUpdate()
     conn.commit()
     ps.close()
     n
-  }
+  })
 
   def stats: Task[IndexStats] = ZIO.attempt {
     def count(table: String): Int =

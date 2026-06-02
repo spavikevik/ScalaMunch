@@ -10,6 +10,7 @@ ThisBuild / scalaVersion  := scalaV
 ThisBuild / version       := "0.1.0-SNAPSHOT"
 ThisBuild / organization  := "io.scalamunch"
 
+
 lazy val root = project
   .in(file("."))
   .aggregate(core, store, cli, mcpServer, tests)
@@ -47,7 +48,15 @@ lazy val cli = project
     libraryDependencies ++= Seq(
       "com.monovore" %% "decline" % declineV,
       "dev.zio"      %% "zio"     % zioV,
-    )
+    ),
+    assembly / mainClass       := Some("scalamunch.cli.Main"),
+    assembly / assemblyJarName := "scala-munch-cli-assembly.jar",
+    assembly / assemblyMergeStrategy := {
+      case PathList("META-INF", "services", _*) => MergeStrategy.concat
+      case PathList("META-INF", _*)             => MergeStrategy.discard
+      case "module-info.class"                  => MergeStrategy.discard
+      case x                                    => (assembly / assemblyMergeStrategy).value(x)
+    },
   )
 
 // ── integration test module ───────────────────────────────────────────────────
@@ -76,6 +85,15 @@ lazy val tests = project
     }
   )
 
+lazy val sbtScalaMunch = project
+  .in(file("sbt-plugin"))
+  .settings(
+    name         := "sbt-scala-munch",
+    organization := "io.scalamunch",
+    scalaVersion := "2.12.19",
+    sbtPlugin    := true,
+  )
+
 lazy val mcpServer = project
   .in(file("mcp-server"))
   .dependsOn(store)
@@ -87,5 +105,13 @@ lazy val mcpServer = project
       "dev.zio" %% "zio"         % zioV,
       "dev.zio" %% "zio-streams" % zioV,
       "dev.zio" %% "zio-json"    % zioJsonV,
-    )
+    ),
+    assembly / mainClass       := Some("scalamunch.mcp.McpMain"),
+    assembly / assemblyJarName := "scala-munch-mcp-assembly.jar",
+    assembly / assemblyMergeStrategy := {
+      case PathList("META-INF", "services", _*) => MergeStrategy.concat
+      case PathList("META-INF", _*)             => MergeStrategy.discard
+      case "module-info.class"                  => MergeStrategy.discard
+      case x                                    => (assembly / assemblyMergeStrategy).value(x)
+    },
   )

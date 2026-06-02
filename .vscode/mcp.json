@@ -1,0 +1,9 @@
+{
+  "servers": {
+    "scala-munch": {
+      "type": "stdio",
+      "command": "${workspaceFolder}/bin/scala-munch-mcp",
+      "args": ["--db", "${workspaceFolder}/.scala-munch.db"]
+    }
+  }
+}

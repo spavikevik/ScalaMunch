@@ -2,8 +2,8 @@
   "mcpServers": {
     "scala-munch": {
       "type": "stdio",
-      "command": "sbt",
-      "args": ["--client", "mcpServer/runMain scalamunch.mcp.McpMain --db .scala-munch.db"],
+      "command": "bin/scala-munch-mcp",
+      "args": ["--db", ".scala-munch.db"],
       "env": {}
     }
   }
