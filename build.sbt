@@ -131,9 +131,10 @@ lazy val mcpServer = project
   .dependsOn(store)
   .settings(
     name := "scala-munch-mcp",
-    noPublish,
     run / fork := true,                  // required: MCP reads/writes stdin/stdout directly
     run / connectInput := true,
+    // Publish the fat jar so users can reference it directly without cloning
+    Compile / packageBin := assembly.value,
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio"         % zioV,
       "dev.zio" %% "zio-streams" % zioV,

@@ -28,8 +28,8 @@ jobs:
       - name: Build assembly jars
         run: sbt "cli/assembly" "mcpServer/assembly"
 
-      - name: Publish sbt plugin to GitHub Packages
-        run: sbt sbtScalaMunch/publish
+      - name: Publish sbt plugin + MCP server to GitHub Packages
+        run: sbt sbtScalaMunch/publish mcpServer/publish
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -49,21 +49,66 @@ jobs:
           body: |
             ## Install
 
-            ### Prerequisites
-            - Java 21+
-            - sbt 1.9+
+            **Prerequisites:** Java 21+
 
-            ### Quick start
+            ---
+
+            ### Option A — Download from Assets (no build required)
+
+            Download `scala-munch-cli-assembly.jar` and `scala-munch-mcp-assembly.jar` from the Assets below.
+
             ```bash
-            # Download jars from Assets below, then:
             java -jar scala-munch-cli-assembly.jar build src/main/scala --db .scala-munch.db
-            java -jar scala-munch-mcp-assembly.jar --db .scala-munch.db   # MCP server
+            java -jar scala-munch-mcp-assembly.jar --db .scala-munch.db   # MCP stdio server
             ```
 
-            ### sbt plugin
+            ---
+
+            ### Option B — GitHub Packages (MCP server + sbt plugin)
+
+            The MCP server jar and sbt plugin are published to GitHub Packages.
+            Requires a [GitHub PAT](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-apache-maven-registry#authenticating-to-github-packages) with `read:packages` in `~/.sbt/1.0/credentials.sbt`:
+
+            ```scala
+            credentials += Credentials("GitHub Package Registry", "maven.pkg.github.com",
+              "<your-github-username>", "<your-PAT>")
+            ```
+
+            **Claude Code / Copilot — reference jar directly in MCP config:**
+
+            `~/.claude/mcp.json` (global, works across all projects):
+            ```json
+            {
+              "mcpServers": {
+                "scala-munch": {
+                  "type": "stdio",
+                  "command": "java",
+                  "args": ["-jar", "/path/to/scala-munch-mcp_3-${{ steps.version.outputs.VERSION }}.jar",
+                            "--db", ".scala-munch.db"]
+                }
+              }
+            }
+            ```
+
+            **sbt plugin** — auto-index after `sbt compile`:
+
             In `project/plugins.sbt`:
             ```scala
             resolvers += "GitHub Packages" at "https://maven.pkg.github.com/spavikevik/ScalaMunch"
             addSbtPlugin("io.scalamunch" % "sbt-scala-munch" % "${{ steps.version.outputs.VERSION }}")
             ```
-            Requires a [GitHub PAT](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-apache-maven-registry#authenticating-to-github-packages) with `read:packages` scope in `~/.sbt/1.0/credentials.sbt`.
+
+            In `build.sbt`:
+            ```scala
+            .enablePlugins(ScalaMunchPlugin)
+            ```
+
+            ---
+
+            ### Option C — Clone and build
+
+            ```bash
+            git clone https://github.com/spavikevik/ScalaMunch
+            cd ScalaMunch
+            bin/install.sh
+            ```
