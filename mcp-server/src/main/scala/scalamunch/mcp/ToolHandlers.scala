@@ -69,8 +69,8 @@ object ToolHandlers:
           case Some(root) =>
             for
               deps       <- store.getTypeDeps(fqn)
-              depSyms    <- ZIO.foreach(deps.take(20))(d => store.getSymbol(d.toFqn))
-              parentSyms <- ZIO.foreach(root.parentFqns.take(5))(p => store.getSymbol(p))
+              depSyms    <- ZIO.foreach(deps.take(20))(d => store.getSymbol(d.toFqn).orElse(ZIO.succeed(None)))
+              parentSyms <- ZIO.foreach(root.parentFqns.take(5))(p => store.getSymbol(p).orElse(ZIO.succeed(None)))
               combined    = (List(root) ++ depSyms.flatten ++ parentSyms.flatten).distinctBy(_.fqn)
               text        = renderTypeContext(fqn, combined)
             yield ToolResult(List(TextContent(text)))
@@ -83,7 +83,7 @@ object ToolHandlers:
     else
       for
         implicits <- store.getImplicitsFor(typeFqn)
-        instSyms  <- ZIO.foreach(implicits.take(limit))(e => store.getSymbol(e.instanceFqn))
+        instSyms  <- ZIO.foreach(implicits.take(limit))(e => store.getSymbol(e.instanceFqn).orElse(ZIO.succeed(None)))
         results    = instSyms.flatten
         text       =
           if results.isEmpty then
@@ -136,7 +136,7 @@ object ToolHandlers:
     if fqns.isEmpty then ZIO.succeed(errorResult("fqns list is required"))
     else
       for
-        syms  <- ZIO.foreach(fqns)(store.getSymbol)
+        syms  <- ZIO.foreach(fqns)(fqn => store.getSymbol(fqn).orElse(ZIO.succeed(None)))
         found  = syms.flatten
         text   = budgetedContext(found, budget)
       yield ToolResult(List(TextContent(text)))

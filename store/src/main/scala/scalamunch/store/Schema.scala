@@ -35,15 +35,19 @@ object Schema:
       doc
     );
 
-    -- FTS triggers (keep in sync)
-    CREATE TRIGGER IF NOT EXISTS symbols_ai AFTER INSERT ON symbols BEGIN
+    -- FTS triggers (keep in sync).
+    -- DROP first so existing DBs get updated triggers on next open.
+    DROP TRIGGER IF EXISTS symbols_ai;
+    CREATE TRIGGER symbols_ai AFTER INSERT ON symbols BEGIN
       INSERT INTO symbols_fts(rowid, fqn, name, signature, doc)
         VALUES (new.rowid, new.fqn, new.name, new.signature, COALESCE(new.doc, ''));
     END;
-    CREATE TRIGGER IF NOT EXISTS symbols_ad AFTER DELETE ON symbols BEGIN
+    DROP TRIGGER IF EXISTS symbols_ad;
+    CREATE TRIGGER symbols_ad AFTER DELETE ON symbols BEGIN
       DELETE FROM symbols_fts WHERE rowid = old.rowid;
     END;
-    CREATE TRIGGER IF NOT EXISTS symbols_au AFTER UPDATE ON symbols BEGIN
+    DROP TRIGGER IF EXISTS symbols_au;
+    CREATE TRIGGER symbols_au AFTER UPDATE ON symbols BEGIN
       DELETE FROM symbols_fts WHERE rowid = old.rowid;
       INSERT INTO symbols_fts(rowid, fqn, name, signature, doc)
         VALUES (new.rowid, new.fqn, new.name, new.signature, COALESCE(new.doc, ''));

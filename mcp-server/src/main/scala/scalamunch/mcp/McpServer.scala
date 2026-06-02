@@ -90,7 +90,9 @@ object McpServer:
           .map(result => ok(id, result.asJsonAst).toJsonCompact)
           .map(Some(_))
           .catchAll { ex =>
-            ZIO.some(rpcErr(id, RpcError.internalError(ex.getMessage.nn)).toJsonCompact)
+            ZIO.some(rpcErr(id, RpcError.internalError(
+              Option(ex.getMessage).getOrElse(ex.getClass.getSimpleName)
+            )).toJsonCompact)
           }
     }
 

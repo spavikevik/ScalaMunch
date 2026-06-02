@@ -120,8 +120,8 @@ object Indexer:
     SemanticDbReader.readFile(sdbPath).getOrElse(Nil)
 
   def findScalaFiles(root: Path): List[Path] =
-    import java.nio.file.FileVisitOption
-    Files.walk(root, FileVisitOption.FOLLOW_LINKS)
+    // No FOLLOW_LINKS: symlink cycles would recurse infinitely with no depth bound.
+    Files.walk(root)
       .iterator()
       .asScala
       .filter(p => p.toString.endsWith(".scala") && !isGenerated(p))

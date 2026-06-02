@@ -93,17 +93,22 @@ object Watcher:
     cfg: Indexer.IndexConfig,
     store: IndexStore
   ): Task[Unit] =
-    ZIO.foreach(files.filter(Files.exists(_))) { file =>
+    val (existing, deleted) = files.partition(Files.exists(_))
+    val invalidations = ZIO.foreach(deleted) { f =>
+      ZIO.logDebug(s"Deleted: ${f.getFileName}") *> store.invalidateFile(f.toString)
+    }
+    val reindexes = ZIO.foreach(existing) { file =>
       for
         digest   <- ZIO.attempt(fileDigest(file))
-        existing <- store.getFileEntry(file.toString)
-        changed   = existing.forall(_.digest != digest)
+        entry    <- store.getFileEntry(file.toString)
+        changed   = entry.forall(_.digest != digest)
         _        <- if changed then {
                       ZIO.logDebug(s"Reindexing ${file.getFileName}") *>
                       doIndexSingle(file, digest, cfg, store)
                     } else ZIO.unit
       yield ()
-    }.unit
+    }
+    invalidations *> reindexes.unit
 
   /** Exposed for Watcher.reindexFiles — mirrors Indexer.doIndex but callable here. */
   private def doIndexSingle(

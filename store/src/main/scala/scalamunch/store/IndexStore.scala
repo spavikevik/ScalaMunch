@@ -278,20 +278,25 @@ private class LiveIndexStore(conn: Connection, writeLock: Semaphore) extends Ind
 
   def stats: Task[IndexStats] = ZIO.attempt {
     def count(table: String): Int =
-      val rs = conn.createStatement().executeQuery(s"SELECT COUNT(*) FROM $table")
-      val n  = rs.getInt(1); rs.close(); n
+      val st = conn.createStatement()
+      try
+        val rs = st.executeQuery(s"SELECT COUNT(*) FROM $table")
+        try rs.getInt(1) finally rs.close()
+      finally st.close()
     val lastUpdated =
-      val rs = conn.createStatement().executeQuery(
-        "SELECT MAX(indexed_at) FROM files"
-      )
-      val ts = if rs.next() then Instant.ofEpochMilli(rs.getLong(1)) else Instant.EPOCH
-      rs.close(); ts
+      val st = conn.createStatement()
+      try
+        val rs = st.executeQuery("SELECT MAX(indexed_at) FROM files")
+        try
+          if rs.next() then Instant.ofEpochMilli(rs.getLong(1)) else Instant.EPOCH
+        finally rs.close()
+      finally st.close()
     IndexStats(
-      symbolCount  = count("symbols"),
-      fileCount    = count("files"),
+      symbolCount   = count("symbols"),
+      fileCount     = count("files"),
       implicitCount = count("implicits"),
-      typDepCount  = count("type_deps"),
-      lastUpdated  = lastUpdated
+      typDepCount   = count("type_deps"),
+      lastUpdated   = lastUpdated
     )
   }
 
