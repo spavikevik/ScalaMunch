@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "scala-munch": {
+      "type": "stdio",
+      "command": "sbt",
+      "args": ["--client", "mcpServer/runMain scalamunch.mcp.McpMain --db .scala-munch.db"],
+      "env": {}
+    }
+  }
+}

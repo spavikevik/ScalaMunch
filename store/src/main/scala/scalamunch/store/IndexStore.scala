@@ -1,0 +1,333 @@
+package scalamunch.store
+
+import scalamunch.model.*
+import zio.*
+
+import java.nio.file.Path
+import java.sql.{Connection, DriverManager, PreparedStatement, ResultSet}
+import java.time.Instant
+
+/** SQLite-backed index store.
+ *  Schema: symbols (FTS5) + type_deps + implicits + files.
+ *  Thread-safety: ZIO fiber-safe via Semaphore on write path.
+ */
+trait IndexStore:
+  def upsertSymbol(sym: ScalaSymbol): Task[Unit]
+  def upsertSymbols(syms: List[ScalaSymbol]): Task[Unit]
+  def upsertTypeDep(dep: TypeDep): Task[Unit]
+  def upsertTypeDeps(deps: List[TypeDep]): Task[Unit]
+  def upsertImplicit(entry: ImplicitEntry): Task[Unit]
+  def upsertImplicits(entries: List[ImplicitEntry]): Task[Unit]
+  def upsertFile(entry: FileEntry): Task[Unit]
+  def getSymbol(fqn: String): Task[Option[ScalaSymbol]]
+  def searchSymbols(query: String, limit: Int = 20): Task[List[ScalaSymbol]]
+  def searchByType(typeSig: String, limit: Int = 10): Task[List[ScalaSymbol]]
+  def getTypeDeps(fqn: String): Task[List[TypeDep]]
+  def getImplicitsFor(typeFqn: String): Task[List[ImplicitEntry]]
+  def invalidateFile(path: String): Task[Int]
+  def stats: Task[IndexStats]
+  def close: Task[Unit]
+
+object IndexStore:
+
+  def open(dbPath: Path): ZIO[Scope, Throwable, IndexStore] =
+    ZIO.acquireRelease(
+      ZIO.attempt {
+        Class.forName("org.sqlite.JDBC")
+        val url  = s"jdbc:sqlite:${dbPath.toAbsolutePath}"
+        val conn = DriverManager.getConnection(url)
+        val impl = LiveIndexStore(conn)
+        impl.initSchema()
+        impl
+      }
+    )(store => store.close.orDie)
+
+  def inMemory: ZIO[Scope, Throwable, IndexStore] =
+    ZIO.acquireRelease(
+      ZIO.attempt {
+        Class.forName("org.sqlite.JDBC")
+        val conn = DriverManager.getConnection("jdbc:sqlite::memory:")
+        val impl = LiveIndexStore(conn)
+        impl.initSchema()
+        impl
+      }
+    )(store => store.close.orDie)
+
+// ── live implementation ──────────────────────────────────────────────────
+
+private class LiveIndexStore(conn: Connection) extends IndexStore:
+
+  def initSchema(): Unit =
+    // PRAGMAs (including WAL mode) must run outside any transaction.
+    Schema.pragmas.foreach { p =>
+      val st = conn.createStatement()
+      st.executeUpdate(p)
+      st.close()
+    }
+    conn.setAutoCommit(false)
+    val st = conn.createStatement()
+    st.executeUpdate(Schema.ddl)
+    conn.commit()
+    st.close()
+
+  def upsertSymbol(sym: ScalaSymbol): Task[Unit] = ZIO.attempt {
+    val ps = conn.prepareStatement(Sql.upsertSymbol)
+    bindSymbol(ps, sym)
+    ps.executeUpdate()
+    conn.commit()
+    ps.close()
+  }
+
+  def upsertSymbols(syms: List[ScalaSymbol]): Task[Unit] = ZIO.attempt {
+    val ps = conn.prepareStatement(Sql.upsertSymbol)
+    syms.foreach { sym =>
+      bindSymbol(ps, sym)
+      ps.addBatch()
+    }
+    ps.executeBatch()
+    conn.commit()
+    ps.close()
+  }
+
+  def upsertTypeDep(dep: TypeDep): Task[Unit] = ZIO.attempt {
+    val ps = conn.prepareStatement(Sql.upsertTypeDep)
+    ps.setString(1, dep.fromFqn)
+    ps.setString(2, dep.toFqn)
+    ps.setString(3, dep.rel.toString)
+    ps.executeUpdate()
+    conn.commit()
+    ps.close()
+  }
+
+  def upsertTypeDeps(deps: List[TypeDep]): Task[Unit] = ZIO.attempt {
+    if deps.isEmpty then ()
+    else
+      val ps = conn.prepareStatement(Sql.upsertTypeDep)
+      deps.foreach { dep =>
+        ps.setString(1, dep.fromFqn)
+        ps.setString(2, dep.toFqn)
+        ps.setString(3, dep.rel.toString)
+        ps.addBatch()
+      }
+      ps.executeBatch()
+      conn.commit()
+      ps.close()
+  }
+
+  def upsertImplicits(entries: List[ImplicitEntry]): Task[Unit] = ZIO.attempt {
+    if entries.isEmpty then ()
+    else
+      val ps = conn.prepareStatement(Sql.upsertImplicit)
+      entries.foreach { e =>
+        ps.setString(1, e.typeFqn)
+        ps.setString(2, e.paramFqn)
+        ps.setString(3, e.instanceFqn)
+        ps.setString(4, e.scopeFqn)
+        ps.addBatch()
+      }
+      ps.executeBatch()
+      conn.commit()
+      ps.close()
+  }
+
+  def upsertImplicit(entry: ImplicitEntry): Task[Unit] = ZIO.attempt {
+    val ps = conn.prepareStatement(Sql.upsertImplicit)
+    ps.setString(1, entry.typeFqn)
+    ps.setString(2, entry.paramFqn)
+    ps.setString(3, entry.instanceFqn)
+    ps.setString(4, entry.scopeFqn)
+    ps.executeUpdate()
+    conn.commit()
+    ps.close()
+  }
+
+  def upsertFile(entry: FileEntry): Task[Unit] = ZIO.attempt {
+    val ps = conn.prepareStatement(Sql.upsertFile)
+    ps.setString(1, entry.path)
+    ps.setString(2, entry.digest)
+    ps.setString(3, entry.scalaVersion.toString)
+    ps.setString(4, entry.symbolFqns.mkString(","))
+    ps.setLong(5, entry.indexedAt.toEpochMilli)
+    ps.executeUpdate()
+    conn.commit()
+    ps.close()
+  }
+
+  def getSymbol(fqn: String): Task[Option[ScalaSymbol]] = ZIO.attempt {
+    val ps = conn.prepareStatement(Sql.getByFqn)
+    ps.setString(1, fqn)
+    val rs  = ps.executeQuery()
+    val sym = if rs.next() then Some(rsToSymbol(rs)) else None
+    rs.close(); ps.close()
+    sym
+  }
+
+  def searchSymbols(query: String, limit: Int): Task[List[ScalaSymbol]] = ZIO.attempt {
+    val ps = conn.prepareStatement(Sql.ftsSearch)
+    // Append * to each word for prefix matching (FTS5 tokenizes camelCase as one token)
+    val ftsQuery = query.trim.split("\\s+").filter(_.nonEmpty).map(w => s"$w*").mkString(" ")
+    ps.setString(1, ftsQuery)
+    ps.setInt(2, limit)
+    val rs  = ps.executeQuery()
+    val buf = collection.mutable.ListBuffer.empty[ScalaSymbol]
+    while rs.next() do buf += rsToSymbol(rs)
+    rs.close(); ps.close()
+    buf.toList
+  }
+
+  def searchByType(typeSig: String, limit: Int): Task[List[ScalaSymbol]] = ZIO.attempt {
+    val ps = conn.prepareStatement(Sql.sigSearch)
+    ps.setString(1, s"%$typeSig%")
+    ps.setInt(2, limit)
+    val rs  = ps.executeQuery()
+    val buf = collection.mutable.ListBuffer.empty[ScalaSymbol]
+    while rs.next() do buf += rsToSymbol(rs)
+    rs.close(); ps.close()
+    buf.toList
+  }
+
+  def getTypeDeps(fqn: String): Task[List[TypeDep]] = ZIO.attempt {
+    val ps = conn.prepareStatement(Sql.typeDepsFor)
+    ps.setString(1, fqn)
+    val rs  = ps.executeQuery()
+    val buf = collection.mutable.ListBuffer.empty[TypeDep]
+    while rs.next() do
+      buf += TypeDep(
+        fromFqn = rs.getString("from_fqn"),
+        toFqn   = rs.getString("to_fqn"),
+        rel     = TypeRel.valueOf(rs.getString("rel"))
+      )
+    rs.close(); ps.close()
+    buf.toList
+  }
+
+  def getImplicitsFor(typeFqn: String): Task[List[ImplicitEntry]] = ZIO.attempt {
+    val ps = conn.prepareStatement(Sql.implicitsFor)
+    ps.setString(1, typeFqn)
+    ps.setString(2, typeFqn)
+    val rs  = ps.executeQuery()
+    val buf = collection.mutable.ListBuffer.empty[ImplicitEntry]
+    while rs.next() do
+      buf += ImplicitEntry(
+        typeFqn     = rs.getString("type_fqn"),
+        paramFqn    = rs.getString("param_fqn"),
+        instanceFqn = rs.getString("instance_fqn"),
+        scopeFqn    = rs.getString("scope_fqn")
+      )
+    rs.close(); ps.close()
+    buf.toList
+  }
+
+  def invalidateFile(path: String): Task[Int] = ZIO.attempt {
+    val ps = conn.prepareStatement(Sql.deleteByFile)
+    ps.setString(1, path)
+    val n = ps.executeUpdate()
+    conn.commit()
+    ps.close()
+    n
+  }
+
+  def stats: Task[IndexStats] = ZIO.attempt {
+    def count(table: String): Int =
+      val rs = conn.createStatement().executeQuery(s"SELECT COUNT(*) FROM $table")
+      val n  = rs.getInt(1); rs.close(); n
+    val lastUpdated =
+      val rs = conn.createStatement().executeQuery(
+        "SELECT MAX(indexed_at) FROM files"
+      )
+      val ts = if rs.next() then Instant.ofEpochMilli(rs.getLong(1)) else Instant.EPOCH
+      rs.close(); ts
+    IndexStats(
+      symbolCount  = count("symbols"),
+      fileCount    = count("files"),
+      implicitCount = count("implicits"),
+      typDepCount  = count("type_deps"),
+      lastUpdated  = lastUpdated
+    )
+  }
+
+  def close: Task[Unit] = ZIO.attempt(conn.close())
+
+  // ── binding / mapping ──────────────────────────────────────────────────
+
+  private def bindSymbol(ps: PreparedStatement, sym: ScalaSymbol): Unit =
+    ps.setString(1, sym.fqn)
+    ps.setString(2, sym.kind.toString)
+    ps.setString(3, sym.name)
+    ps.setString(4, sym.scalaVersion.toString)
+    ps.setString(5, sym.signature)
+    ps.setString(6, sym.doc.orNull)
+    ps.setString(7, sym.file)
+    ps.setInt(8, sym.lineStart)
+    ps.setInt(9, sym.lineEnd)
+    ps.setString(10, sym.sourceHash)
+    ps.setString(11, sym.typeParams.mkString(","))
+    ps.setString(12, sym.annotations.mkString(","))
+    ps.setString(13, sym.parentFqns.mkString(","))
+    ps.setString(14, sym.enclosingFqn.orNull)
+
+  private def rsToSymbol(rs: ResultSet): ScalaSymbol =
+    ScalaSymbol(
+      fqn          = rs.getString("fqn"),
+      kind         = SymbolKind.valueOf(rs.getString("kind")),
+      name         = rs.getString("name"),
+      scalaVersion = ScalaVersion.valueOf(rs.getString("scala_ver")),
+      signature    = rs.getString("signature"),
+      doc          = Option(rs.getString("doc")),
+      file         = rs.getString("file"),
+      lineStart    = rs.getInt("line_start"),
+      lineEnd      = rs.getInt("line_end"),
+      sourceHash   = rs.getString("source_hash"),
+      typeParams   = csvList(rs.getString("type_params")),
+      annotations  = csvList(rs.getString("annotations")),
+      parentFqns   = csvList(rs.getString("parent_fqns")),
+      enclosingFqn = Option(rs.getString("enclosing_fqn"))
+    )
+
+  private def csvList(s: String): List[String] =
+    if s == null || s.isEmpty then Nil else s.split(",").toList
+
+// ── SQL ──────────────────────────────────────────────────────────────────
+
+private object Sql:
+  val upsertSymbol: String = """
+    INSERT OR REPLACE INTO symbols
+      (fqn, kind, name, scala_ver, signature, doc, file,
+       line_start, line_end, source_hash, type_params, annotations, parent_fqns, enclosing_fqn)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  """
+
+  val upsertTypeDep: String = """
+    INSERT OR IGNORE INTO type_deps (from_fqn, to_fqn, rel) VALUES (?,?,?)
+  """
+
+  val upsertImplicit: String = """
+    INSERT OR REPLACE INTO implicits (type_fqn, param_fqn, instance_fqn, scope_fqn)
+    VALUES (?,?,?,?)
+  """
+
+  val upsertFile: String = """
+    INSERT OR REPLACE INTO files (path, digest, scala_ver, symbol_fqns, indexed_at)
+    VALUES (?,?,?,?,?)
+  """
+
+  val getByFqn: String = "SELECT * FROM symbols WHERE fqn = ?"
+
+  val ftsSearch: String = """
+    SELECT s.* FROM symbols s
+    JOIN symbols_fts f ON s.fqn = f.fqn
+    WHERE symbols_fts MATCH ?
+    ORDER BY rank LIMIT ?
+  """
+
+  val sigSearch: String =
+    "SELECT * FROM symbols WHERE signature LIKE ? ORDER BY length(signature) LIMIT ?"
+
+  val typeDepsFor: String =
+    "SELECT * FROM type_deps WHERE from_fqn = ?"
+
+  val implicitsFor: String =
+    "SELECT * FROM implicits WHERE type_fqn = ? OR param_fqn = ?"
+
+  val deleteByFile: String =
+    "DELETE FROM symbols WHERE file = ?"
