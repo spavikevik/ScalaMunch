@@ -8,7 +8,9 @@ import java.nio.file.{Files, Path}
 /** Reads .semanticdb protobuf files produced by semanticdb-scalac (Scala 2/3 compiler plugin).
  *  Returns resolved type information to augment Scalameta-parsed signatures.
  *
- *  SemanticDB files live at: target/scala-VERSION/meta/RELATIVE_SOURCE_PATH.semanticdb
+ *  SemanticDB files can be in multiple layouts:
+ *  - Single-module: target/scala-VERSION/meta/RELATIVE_SOURCE_PATH.semanticdb
+ *  - Multi-module: {module}/target/scala-VERSION/meta/META-INF/semanticdb/{module}/src/.../FILE.scala.semanticdb
  *  One .semanticdb file per .scala source file.
  */
 object SemanticDbReader:
@@ -32,12 +34,58 @@ object SemanticDbReader:
       .filter(p => p.toString.endsWith(".semanticdb"))
       .toList
 
-  /** Maps source path → corresponding .semanticdb path under target/. */
+  /** Build a mapping from source file suffix to .semanticdb file.
+   *  Handles both single-module and multi-module sbt layouts.
+   *  Returns Map[source_path_suffix -> semanticdb_path]
+   */
+  def buildSemanticDbMapping(root: Path): Map[String, Path] =
+    val allSdb = findSemanticDbFiles(root)
+    allSdb.flatMap { sdbPath =>
+      // Extract source path from .semanticdb path
+      // Pattern: .../META-INF/semanticdb/{module}/src/main/scala/{file}.scala.semanticdb
+      // OR: .../meta/{module}/src/main/scala/{file}.scala.semanticdb
+      val pathStr = sdbPath.toString
+      if pathStr.endsWith(".scala.semanticdb") then
+        val sourceSuffix = pathStr
+          .stripSuffix(".semanticdb")
+          .split("(?:META-INF/semanticdb/|/meta/)")
+          .lastOption
+          .getOrElse("")
+        if sourceSuffix.nonEmpty then Some(sourceSuffix -> sdbPath)
+        else None
+      else None
+    }.toMap
+
+  /** Maps source path → corresponding .semanticdb path under target/.
+   *  Tries multiple patterns to support both single-module and multi-module sbt layouts.
+   */
   def semanticDbPath(sourceRoot: Path, sourceFile: Path, scalaVer: String): Path =
     val rel = sourceRoot.relativize(sourceFile)
-    sourceRoot
+    val relStr = rel.toString
+
+    // Try pattern 1: single-module layout
+    // {sourceRoot}/target/scala-{ver}/meta/{rel_source_path}.semanticdb
+    val pattern1 = sourceRoot
       .resolve(s"target/scala-$scalaVer/meta")
-      .resolve(rel.toString + ".semanticdb")
+      .resolve(relStr + ".semanticdb")
+
+    if Files.exists(pattern1) then return pattern1
+
+    // Try pattern 2: multi-module with META-INF
+    // {sourceRoot}/{module}/target/scala-{ver}/meta/META-INF/semanticdb/{module}/{src_path}.semanticdb
+    // Extract module name (first component of relative path)
+    val parts = relStr.split("/")
+    if parts.length > 0 then
+      val module = parts(0)
+      val pattern2 = sourceRoot
+        .resolve(module)
+        .resolve(s"target/scala-$scalaVer/meta/META-INF/semanticdb")
+        .resolve(relStr + ".semanticdb")
+
+      if Files.exists(pattern2) then return pattern2
+
+    // Fallback to pattern 1 (will fail later if not found, maintaining backward compatibility)
+    pattern1
 
   // ── extraction ────────────────────────────────────────────────────────
 
