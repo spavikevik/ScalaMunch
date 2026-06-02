@@ -7,19 +7,47 @@ val declineV    = "2.6.2"
 val zioJsonV    = "0.7.45"
 
 ThisBuild / scalaVersion  := scalaV
-ThisBuild / version       := "0.1.0-SNAPSHOT"
+ThisBuild / version       := "0.1.0-alpha.1"
 ThisBuild / organization  := "io.scalamunch"
+ThisBuild / versionScheme := Some("semver-spec")
 
+// ── publish settings (used by sbt plugin; other modules are apps not libraries) ──
+ThisBuild / homepage := Some(url("https://github.com/spavikevik/ScalaMunch"))
+ThisBuild / licenses := List("Apache-2.0" -> url("https://www.apache.org/licenses/LICENSE-2.0"))
+ThisBuild / scmInfo  := Some(ScmInfo(
+  url("https://github.com/spavikevik/ScalaMunch"),
+  "scm:git@github.com:spavikevik/ScalaMunch.git"
+))
+ThisBuild / developers := List(Developer(
+  id    = "spavikevik",
+  name  = "Stefan Pavikjevikj",
+  email = "stefan.pavikjevikj@gmail.com",
+  url   = url("https://github.com/spavikevik")
+))
+ThisBuild / pomIncludeRepository := { _ => false }
+ThisBuild / publishTo := Some("GitHub Package Registry" at
+  "https://maven.pkg.github.com/spavikevik/ScalaMunch")
+ThisBuild / credentials += Credentials(
+  "GitHub Package Registry",
+  "maven.pkg.github.com",
+  "spavikevik",
+  sys.env.getOrElse("GITHUB_TOKEN", "")
+)
+
+
+// Only the sbt plugin is published. All other modules are applications.
+val noPublish = Seq(publish / skip := true, publishLocal / skip := true)
 
 lazy val root = project
   .in(file("."))
   .aggregate(core, store, cli, mcpServer, tests)
-  .settings(name := "scala-munch")
+  .settings(name := "scala-munch", noPublish)
 
 lazy val core = project
   .in(file("core"))
   .settings(
     name := "scala-munch-core",
+    noPublish,
     libraryDependencies ++= Seq(
       "org.scalameta" %% "scalameta"        % scalametaV,
       "org.scalameta" %% "semanticdb-shared" % scalametaV,
@@ -33,6 +61,7 @@ lazy val store = project
   .dependsOn(core)
   .settings(
     name := "scala-munch-store",
+    noPublish,
     libraryDependencies ++= Seq(
       "org.xerial"        % "sqlite-jdbc" % sqliteV,
       "com.github.luben" %  "zstd-jni"   % zstdV,
@@ -45,6 +74,7 @@ lazy val cli = project
   .dependsOn(store)
   .settings(
     name := "scala-munch-cli",
+    noPublish,
     libraryDependencies ++= Seq(
       "com.monovore" %% "decline" % declineV,
       "dev.zio"      %% "zio"     % zioV,
@@ -68,6 +98,7 @@ lazy val tests = project
   .dependsOn(cli, mcpServer)
   .settings(
     name := "scala-munch-tests",
+    noPublish,
     libraryDependencies ++= Seq(
       "dev.zio"       %% "zio-test"     % zioV  % Test,
       "dev.zio"       %% "zio-test-sbt" % zioV  % Test,
@@ -100,6 +131,7 @@ lazy val mcpServer = project
   .dependsOn(store)
   .settings(
     name := "scala-munch-mcp",
+    noPublish,
     run / fork := true,                  // required: MCP reads/writes stdin/stdout directly
     run / connectInput := true,
     libraryDependencies ++= Seq(
