@@ -1,0 +1,73 @@
+ScalaMunch
+Copyright 2026 Stefan Pavikjevikj
+
+Licensed under the Apache License, Version 2.0.
+See LICENSE for the full license text.
+
+---
+
+This product includes software developed by third parties:
+
+Scala Standard Library
+  Copyright (c) 2002-2025 EPFL
+  Copyright (c) 2011-2025 Lightbend, Inc. dba Akka
+  Licensed under the Apache License, Version 2.0
+  https://www.scala-lang.org/
+
+Scalameta / SemanticDB
+  Copyright (c) 2014-2024 EPFL and contributors
+  Licensed under the Apache License, Version 2.0
+  https://scalameta.org/
+
+ZIO
+  Copyright (c) 2017-2025 John A. De Goes and the ZIO Contributors
+  Licensed under the Apache License, Version 2.0
+  https://zio.dev/
+
+zio-json
+  Copyright (c) 2020-2025 ZIO Contributors
+  Licensed under the Apache License, Version 2.0
+  https://github.com/zio/zio-json
+
+SQLite JDBC (xerial)
+  Copyright (c) 2006-2024 Taro L. Saito and contributors
+  Licensed under the Apache License, Version 2.0
+  https://github.com/xerial/sqlite-jdbc
+
+sbt-assembly
+  Copyright (c) 2010-2024 Eugene Yokota and contributors
+  Licensed under the Apache License, Version 2.0
+  https://github.com/sbt/sbt-assembly
+
+Decline
+  Copyright (c) 2017-2024 Ben Hamlin and contributors
+  Licensed under the MIT License
+  https://github.com/bkirwi/decline
+
+zstd-jni
+  Copyright (c) 2015-2024 Luben Karavelov
+  All rights reserved.
+  Licensed under the BSD 2-Clause License:
+
+    Redistribution and use in source and binary forms, with or without
+    modification, are permitted provided that the following conditions are met:
+
+    1. Redistributions of source code must retain the above copyright notice,
+       this list of conditions and the following disclaimer.
+    2. Redistributions in binary form must reproduce the above copyright notice,
+       this list of conditions and the following disclaimer in the documentation
+       and/or other materials provided with the distribution.
+
+    THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+    AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+    IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+    ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+    LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+    CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+    SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+    INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+    CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+    ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+    POSSIBILITY OF SUCH DAMAGE.
+
+  https://github.com/luben/zstd-jni

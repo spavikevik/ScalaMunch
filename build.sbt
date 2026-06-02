@@ -55,6 +55,7 @@ lazy val cli = project
       case PathList("META-INF", "services", _*) => MergeStrategy.concat
       case PathList("META-INF", _*)             => MergeStrategy.discard
       case "module-info.class"                  => MergeStrategy.discard
+      case "NOTICE"                             => MergeStrategy.concat
       case x                                    => (assembly / assemblyMergeStrategy).value(x)
     },
   )
@@ -112,6 +113,7 @@ lazy val mcpServer = project
       case PathList("META-INF", "services", _*) => MergeStrategy.concat
       case PathList("META-INF", _*)             => MergeStrategy.discard
       case "module-info.class"                  => MergeStrategy.discard
+      case "NOTICE"                             => MergeStrategy.concat
       case x                                    => (assembly / assemblyMergeStrategy).value(x)
     },
   )
