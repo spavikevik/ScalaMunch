@@ -37,18 +37,16 @@ object Schema:
 
     -- FTS triggers (keep in sync)
     CREATE TRIGGER IF NOT EXISTS symbols_ai AFTER INSERT ON symbols BEGIN
-      INSERT INTO symbols_fts(fqn, name, signature, doc)
-        VALUES (new.fqn, new.name, new.signature, new.doc);
+      INSERT INTO symbols_fts(rowid, fqn, name, signature, doc)
+        VALUES (new.rowid, new.fqn, new.name, new.signature, COALESCE(new.doc, ''));
     END;
     CREATE TRIGGER IF NOT EXISTS symbols_ad AFTER DELETE ON symbols BEGIN
-      INSERT INTO symbols_fts(symbols_fts, fqn, name, signature, doc)
-        VALUES ('delete', old.fqn, old.name, old.signature, old.doc);
+      DELETE FROM symbols_fts WHERE rowid = old.rowid;
     END;
     CREATE TRIGGER IF NOT EXISTS symbols_au AFTER UPDATE ON symbols BEGIN
-      INSERT INTO symbols_fts(symbols_fts, fqn, name, signature, doc)
-        VALUES ('delete', old.fqn, old.name, old.signature, old.doc);
-      INSERT INTO symbols_fts(fqn, name, signature, doc)
-        VALUES (new.fqn, new.name, new.signature, new.doc);
+      DELETE FROM symbols_fts WHERE rowid = old.rowid;
+      INSERT INTO symbols_fts(rowid, fqn, name, signature, doc)
+        VALUES (new.rowid, new.fqn, new.name, new.signature, COALESCE(new.doc, ''));
     END;
 
     -- Type dependency graph

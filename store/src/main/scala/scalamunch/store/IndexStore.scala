@@ -364,7 +364,7 @@ private object Sql:
 
   val ftsSearch: String = """
     SELECT s.* FROM symbols s
-    JOIN symbols_fts f ON s.fqn = f.fqn
+    JOIN symbols_fts f ON s.rowid = f.rowid
     WHERE symbols_fts MATCH ?
     ORDER BY rank LIMIT ?
   """
