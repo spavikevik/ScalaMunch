@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "test -f .scala-munch.db && echo 'ScalaMunch index present. PREFER MCP tools over grep/Read for Scala symbol navigation: search_symbols (not grep -r), find_references (not grep -r), get_symbol (not Read), get_package_overview/list_packages (not ls/find). Use grep only for non-symbol patterns (string literals, comments, config).'"
+          }
+        ]
+      }
+    ]
+  }
+}

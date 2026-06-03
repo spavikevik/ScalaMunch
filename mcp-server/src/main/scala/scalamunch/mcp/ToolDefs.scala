@@ -6,6 +6,7 @@ object ToolDefs:
   val getSymbol = ToolDef(
     name        = "get_symbol",
     description = "Get a Scala symbol by fully-qualified name at a specific detail level. " +
+      "Prefer this over reading the source file — returns only what is needed at 90–95% fewer tokens. " +
       "Use 'sig' (20–50 tokens) for signatures, 'doc' to include scaladoc, " +
       "'type-ctx' to include resolved type dependencies, 'full' for the complete declaration.",
     inputSchema = ToolInputSchema(
@@ -21,6 +22,7 @@ object ToolDefs:
   val searchSymbols = ToolDef(
     name        = "search_symbols",
     description = "Full-text search for Scala symbols by name. Returns signatures and locations. " +
+      "Prefer this over grep -r for 'where is X defined' or 'find all Foo symbols' — index-backed, instant. " +
       "Optionally filter by kind (class/trait/object/def/val/type/given).",
     inputSchema = ToolInputSchema(
       typeName   = "object",
@@ -80,6 +82,7 @@ object ToolDefs:
   val findReferences = ToolDef(
     name        = "find_references",
     description = "Find all usages of a symbol across the indexed codebase. " +
+      "Prefer this over grep -r for 'what calls X' or 'where is Y used' — returns file:line with context. " +
       "Requires SemanticDB (.semanticdb files) for full accuracy.",
     inputSchema = ToolInputSchema(
       typeName   = "object",
@@ -123,6 +126,7 @@ object ToolDefs:
   val listPackages = ToolDef(
     name        = "list_packages",
     description = "List all packages in the index with symbol counts, sorted by size. " +
+      "Prefer this over find/ls for codebase exploration — no file I/O, instant. " +
       "Use this first when exploring an unfamiliar codebase — find which packages exist " +
       "before drilling into specific symbols with get_package_overview.",
     inputSchema = ToolInputSchema(

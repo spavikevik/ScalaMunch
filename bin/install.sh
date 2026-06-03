@@ -30,6 +30,31 @@ echo ""
 echo "    CLI jar : $ROOT/$CLI_JAR"
 echo "    MCP jar : $ROOT/$MCP_JAR"
 echo ""
+echo "==> Writing Claude Code MCP tool-preference hook..."
+mkdir -p "$ROOT/.claude"
+if [ ! -f "$ROOT/.claude/settings.json" ]; then
+  cat > "$ROOT/.claude/settings.json" << 'EOF'
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "test -f .scala-munch.db && echo 'ScalaMunch index present. PREFER MCP tools over grep/Read for Scala symbol navigation: search_symbols (not grep -r), find_references (not grep -r), get_symbol (not Read), get_package_overview/list_packages (not ls/find). Use grep only for non-symbol patterns (string literals, comments, config).'"
+          }
+        ]
+      }
+    ]
+  }
+}
+EOF
+  echo "    Wrote .claude/settings.json"
+else
+  echo "    .claude/settings.json already exists — skipping"
+fi
+
+echo ""
 echo "==> Next steps:"
 echo ""
 echo "    1. Index your project:"
@@ -41,4 +66,8 @@ echo "    3. Claude Code: .mcp.json is already configured."
 echo "       Reload the window: Claude Code > Reload MCP Servers"
 echo ""
 echo "    4. Copilot (VS Code): create .vscode/mcp.json — see README.md"
+echo ""
+echo "    5. Copy .claude/settings.json to any project where you use ScalaMunch."
+echo "       It adds a UserPromptSubmit hook that reminds Claude to use MCP tools"
+echo "       (search_symbols, find_references, get_symbol) instead of grep/Read."
 echo ""
