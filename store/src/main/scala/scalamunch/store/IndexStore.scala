@@ -24,6 +24,7 @@ trait IndexStore:
   def searchSymbols(query: String, limit: Int = 20): Task[List[ScalaSymbol]]
   def searchByType(typeSig: String, limit: Int = 10): Task[List[ScalaSymbol]]
   def getTypeDeps(fqn: String): Task[List[TypeDep]]
+  def getReferences(fqn: String, limit: Int = 50): Task[List[TypeDep]]
   def getImplicitsFor(typeFqn: String): Task[List[ImplicitEntry]]
   def invalidateFile(path: String): Task[Int]
   def getFileEntry(path: String): Task[Option[FileEntry]]
@@ -201,6 +202,22 @@ private class LiveIndexStore(conn: Connection, writeLock: Semaphore) extends Ind
   def getTypeDeps(fqn: String): Task[List[TypeDep]] = ZIO.attempt {
     val ps = conn.prepareStatement(Sql.typeDepsFor)
     ps.setString(1, fqn)
+    val rs  = ps.executeQuery()
+    val buf = collection.mutable.ListBuffer.empty[TypeDep]
+    while rs.next() do
+      buf += TypeDep(
+        fromFqn = rs.getString("from_fqn"),
+        toFqn   = rs.getString("to_fqn"),
+        rel     = TypeRel.valueOf(rs.getString("rel"))
+      )
+    rs.close(); ps.close()
+    buf.toList
+  }
+
+  def getReferences(fqn: String, limit: Int = 50): Task[List[TypeDep]] = ZIO.attempt {
+    val ps = conn.prepareStatement(Sql.referencesTo)
+    ps.setString(1, fqn)
+    ps.setInt(2, limit)
     val rs  = ps.executeQuery()
     val buf = collection.mutable.ListBuffer.empty[TypeDep]
     while rs.next() do
@@ -401,6 +418,9 @@ private object Sql:
 
   val typeDepsFor: String =
     "SELECT * FROM type_deps WHERE from_fqn = ?"
+
+  val referencesTo: String =
+    "SELECT * FROM type_deps WHERE to_fqn = ? LIMIT ?"
 
   val implicitsFor: String =
     "SELECT * FROM implicits WHERE type_fqn = ? OR param_fqn = ?"
