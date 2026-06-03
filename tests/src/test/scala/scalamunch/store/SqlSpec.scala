@@ -301,6 +301,43 @@ object SqlSpec extends ZIOSpecDefault:
         yield assertTrue(r.exists(d => d.fromFqn == "from/Foo#" && d.toFqn == "to/Bar#"))
       }.provide(layer),
 
+      test("getReferences returns reverse edges (callers of the symbol)") {
+        val deps = List(
+          TypeDep("pkg/Child1#", "pkg/Base#", TypeRel.Extends),
+          TypeDep("pkg/Child2#", "pkg/Base#", TypeRel.Extends),
+          TypeDep("pkg/Child1#", "pkg/Other#", TypeRel.Extends),
+        )
+        for
+          _ <- q(_.upsertTypeDeps(deps))
+          r <- q(_.getReferences("pkg/Base#", 50))
+        yield assertTrue(
+          r.size == 2 &&
+          r.exists(_.fromFqn == "pkg/Child1#") &&
+          r.exists(_.fromFqn == "pkg/Child2#") &&
+          r.forall(_.toFqn == "pkg/Base#")
+        )
+      }.provide(layer),
+
+      test("getReferences returns empty for unreferenced symbol") {
+        q(_.getReferences("no/Such#", 50)).map(r => assertTrue(r.isEmpty))
+      }.provide(layer),
+
+      test("getReferences does not return outgoing deps of the same symbol") {
+        val dep = TypeDep("from/Foo#", "to/Bar#", TypeRel.Extends)
+        for
+          _ <- q(_.upsertTypeDeps(List(dep)))
+          r <- q(_.getReferences("from/Foo#", 50))
+        yield assertTrue(r.isEmpty)
+      }.provide(layer),
+
+      test("getReferences respects limit") {
+        val deps = (1 to 10).map(i => TypeDep(s"pkg/C$i#", "pkg/Root#", TypeRel.Extends)).toList
+        for
+          _ <- q(_.upsertTypeDeps(deps))
+          r <- q(_.getReferences("pkg/Root#", 3))
+        yield assertTrue(r.size <= 3)
+      }.provide(layer),
+
     ),
 
   )

@@ -101,19 +101,21 @@ object ToolHandlers:
     val limit = args.int("limit").getOrElse(20)
     if fqn.isEmpty then ZIO.succeed(errorResult("fqn is required"))
     else
-      // Phase 2: return type deps as proxy. Full reference tracking in Phase 3.
-      store.getTypeDeps(fqn).map { deps =>
-        if deps.isEmpty then
-          ToolResult(List(TextContent(
-            s"No indexed references for $fqn.\n" +
-            "Full reference tracking requires SemanticDB (Phase 3)."
-          )))
-        else
-          val lines = deps.take(limit).map(d => s"  ${d.rel}: ${displayFqn(d.toFqn)}")
-          ToolResult(List(TextContent(
-            s"Type-level references from ${displayFqn(fqn)}:\n${lines.mkString("\n")}"
-          )))
-      }
+      for
+        refs    <- store.getReferences(fqn, limit)
+        symOpts <- ZIO.foreach(refs)(r => store.getSymbol(r.fromFqn).orElse(ZIO.succeed(None)))
+        text     =
+          if refs.isEmpty then
+            s"No references found for ${displayFqn(fqn)}.\n" +
+            "References are derived from type-dependency edges. " +
+            "Run sbt compile with SemanticDB enabled for best coverage."
+          else
+            val lines = refs.zip(symOpts).map { (dep, symOpt) =>
+              val loc = symOpt.map(s => s"  ${s.file}:${s.lineStart}").getOrElse("")
+              s"  [${dep.rel}] ${displayFqn(dep.fromFqn)}$loc"
+            }
+            s"References to ${displayFqn(fqn)} (${refs.size}):\n${lines.mkString("\n")}"
+      yield ToolResult(List(TextContent(text)))
 
   private def getCallGraph(args: Json, store: IndexStore): Task[ToolResult] =
     val fqn = args.str("fqn").getOrElse("")
