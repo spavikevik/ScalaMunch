@@ -120,31 +120,25 @@ object Watcher:
     import scalamunch.parser.{ScalametaParser, SemanticDbReader}
     import scalamunch.typegraph.{ImplicitExtractor, TypeDepExtractor}
     import java.time.Instant
+    val sdbPath = if cfg.useSemanticDb then Indexer.resolveSemanticDb(cfg.sourceRoot, file) else None
     for
       _       <- store.invalidateFile(file.toString)
       symbols <- ScalametaParser.parseFile(file, cfg.scalaVersion) match
                    case Left(err)   => ZIO.logWarning(s"Skip ${file.getFileName}: $err") *> ZIO.succeed(Nil)
                    case Right(syms) => ZIO.succeed(syms)
-      semSyms  = if !cfg.useSemanticDb then Nil
-                 else {
-                   val ver     = if cfg.scalaVersion == ScalaVersion.Scala3 then "3" else "2.13"
-                   val sdbPath = SemanticDbReader.semanticDbPath(cfg.sourceRoot, file, ver)
-                   SemanticDbReader.readFile(sdbPath).getOrElse(Nil)
-                 }
+      semSyms  = sdbPath.flatMap(p => SemanticDbReader.readFile(p).toOption).getOrElse(Nil)
       merged   = if semSyms.isEmpty then symbols
                  else
                    val sdbByFqn = semSyms.map(s => s.fqn -> s).toMap
                    symbols.map(sym => sdbByFqn.get(sym.fqn).fold(sym)(s => sym.copy(doc = sym.doc.orElse(s.docString))))
       _       <- store.upsertSymbols(merged)
-      _       <- if cfg.useSemanticDb then
-                   val ver = if cfg.scalaVersion == ScalaVersion.Scala3 then "3" else "2.13"
-                   val sdbPath = SemanticDbReader.semanticDbPath(cfg.sourceRoot, file, ver)
-                   SemanticDbReader.readDocs(sdbPath) match
+      _       <- sdbPath match
+                   case Some(p) => SemanticDbReader.readDocs(p) match
                      case Left(_)     => ZIO.unit
                      case Right(docs) =>
                        store.upsertTypeDeps(TypeDepExtractor.extract(docs)) *>
                        store.upsertImplicits(ImplicitExtractor.extract(docs))
-                 else ZIO.unit
+                   case None    => ZIO.unit
       _       <- store.upsertFile(scalamunch.model.FileEntry(
                    path         = file.toString,
                    digest       = digest,
