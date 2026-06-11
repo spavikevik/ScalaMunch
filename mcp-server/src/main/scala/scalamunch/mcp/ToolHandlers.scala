@@ -44,10 +44,10 @@ object ToolHandlers:
     val kind  = args.str("kind")
     if query.isEmpty then ZIO.succeed(errorResult("query is required"))
     else
-      store.searchSymbols(query, limit).map { results =>
-        val filtered = kind.fold(results)(k => results.filter(_.kind.toString == k))
-        if filtered.isEmpty then ToolResult(List(TextContent("No results.")))
-        else ToolResult(List(TextContent(filtered.map(renderSymbolBrief).mkString("\n\n"))))
+      // kind is pushed into the SQL query so LIMIT applies to already-filtered rows.
+      store.searchSymbols(query, limit, kind).map { results =>
+        if results.isEmpty then ToolResult(List(TextContent("No results.")))
+        else ToolResult(List(TextContent(results.map(renderSymbolBrief).mkString("\n\n"))))
       }
 
   private def searchByType(args: Json, store: IndexStore): Task[ToolResult] =
@@ -72,7 +72,7 @@ object ToolHandlers:
             for
               deps       <- store.getTypeDeps(fqn)
               depSyms    <- ZIO.foreach(deps.take(20))(d => store.getSymbol(d.toFqn).orElse(ZIO.succeed(None)))
-              parentSyms <- ZIO.foreach(root.parentFqns.take(5))(p => store.getSymbol(p).orElse(ZIO.succeed(None)))
+              parentSyms <- ZIO.foreach(root.parentFqns.take(5))(p => resolveParent(store, p))
               combined    = (List(root) ++ depSyms.flatten ++ parentSyms.flatten).distinctBy(_.fqn)
               text        = renderTypeContext(fqn, combined)
             yield ToolResult(List(TextContent(text)))
@@ -249,6 +249,23 @@ object ToolHandlers:
           gaps.foreach(s => sb.append(s"  ✗ [${s.kind}] ${s.name}  (${s.fqn})\n"))
           sb.toString
       yield ToolResult(List(TextContent(text)))
+
+  /** Resolve a parent listed in `parentFqns`. These come from the AST `extends`
+    * clause as short type text (e.g. "IndexStore", "Eq[Int]") rather than a real
+    * FQN, so a direct getSymbol lookup misses. Fall back to a base-name lookup. */
+  private def resolveParent(store: IndexStore, raw: String): Task[Option[ScalaSymbol]] =
+    store.getSymbol(raw).flatMap {
+      case found @ Some(_) => ZIO.succeed(found)
+      case None =>
+        val base = raw.takeWhile(_ != '[').trim.split('.').last.split('/').last
+        if base.isEmpty then ZIO.succeed(None)
+        else store.findByName(base, 25).map { syms =>
+          // An `extends` target is a trait or class; prefer those over a
+          // same-named companion object before falling back to anything.
+          syms.find(s => s.kind == SymbolKind.Trait || s.kind == SymbolKind.Class)
+            .orElse(syms.find(_.kind == SymbolKind.Object))
+        }
+    }.orElse(ZIO.succeed(None))
 
   // ── rendering ────────────────────────────────────────────────────────────────
 
