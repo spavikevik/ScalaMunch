@@ -57,7 +57,7 @@ In `project/plugins.sbt`:
 
 ```scala
 resolvers += "GitHub Packages" at "https://maven.pkg.github.com/spavikevik/ScalaMunch"
-addSbtPlugin("io.scalamunch" % "sbt-scala-munch" % "0.1.0-alpha.1")
+addSbtPlugin("io.scalamunch" % "sbt-scala-munch" % "0.1.0-alpha.3")
 ```
 
 ### Option C — Build from source
@@ -128,7 +128,7 @@ In your project's `project/plugins.sbt`:
 
 ```scala
 resolvers += "GitHub Packages" at "https://maven.pkg.github.com/spavikevik/ScalaMunch"
-addSbtPlugin("io.scalamunch" % "sbt-scala-munch" % "0.1.0-alpha.1")
+addSbtPlugin("io.scalamunch" % "sbt-scala-munch" % "0.1.0-alpha.3")
 ```
 
 In `build.sbt`:
