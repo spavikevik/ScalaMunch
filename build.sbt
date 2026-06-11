@@ -11,6 +11,10 @@ ThisBuild / version       := "0.1.0-alpha.2"
 ThisBuild / organization  := "io.scalamunch"
 ThisBuild / versionScheme := Some("semver-spec")
 
+// Emit SemanticDB so ScalaMunch can populate type_deps + implicits.
+// Scala 3 built-in flag; the Scala 2.12 sbt plugin clears it below.
+ThisBuild / scalacOptions += "-Xsemanticdb"
+
 // ── publish settings (used by sbt plugin; other modules are apps not libraries) ──
 ThisBuild / homepage := Some(url("https://github.com/spavikevik/ScalaMunch"))
 ThisBuild / licenses := List("Apache-2.0" -> url("https://www.apache.org/licenses/LICENSE-2.0"))
@@ -124,6 +128,7 @@ lazy val sbtScalaMunch = project
     organization := "io.scalamunch",
     scalaVersion := "2.12.19",
     sbtPlugin    := true,
+    scalacOptions := Nil,  // -Xsemanticdb is Scala 3-only; drop the inherited flag
   )
 
 lazy val mcpServer = project
