@@ -142,6 +142,36 @@ object McpProtocolSpec extends ZIOSpecDefault:
           resp  <- callTool(store, "search_symbols")
           text   = extractText(resp)
         yield assertTrue(text.exists(_.toLowerCase.contains("required")))
+      },
+
+      test("kind filter keeps matches under a small limit (regression #1)") {
+        for
+          store <- ZIO.service[IndexStore]
+          resp  <- callTool(store, "search_symbols",
+                     "query" -> "Functor", "kind" -> "Trait", "limit" -> "3")
+          text   = extractText(resp).getOrElse("")
+        yield assertTrue(text.contains("Functor"), !text.contains("No results"))
+      },
+
+      test("FTS operator input does not error (regression #2)") {
+        for
+          store <- ZIO.service[IndexStore]
+          resp  <- callTool(store, "search_symbols", "query" -> "Functor*")
+          text   = extractText(resp)
+        yield assertTrue(text.isDefined)
+      }
+    ),
+
+    suite("tool: get_type_context")(
+
+      test("resolves AST parents to indexed symbols (regression #3)") {
+        // cats Monad extends FlatMap with Applicative. parent_fqns hold the short
+        // AST names, so resolution must fall back to a base-name lookup.
+        for
+          store <- ZIO.service[IndexStore]
+          resp  <- callTool(store, "get_type_context", "fqn" -> "cats/Monad#")
+          text   = extractText(resp).getOrElse("")
+        yield assertTrue(text.contains("FlatMap"), text.contains("Applicative"))
       }
     ),
 

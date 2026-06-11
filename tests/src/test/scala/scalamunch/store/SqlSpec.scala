@@ -147,6 +147,39 @@ object SqlSpec extends ZIOSpecDefault:
         yield assertTrue(!r.exists(_.fqn == "pkg/Deleted#"))
       }.provide(layer),
 
+      test("kind filter applied in SQL before limit (regression #1)") {
+        // Vals rank ahead of the Def for the same prefix; with limit=1 and a Def
+        // filter, the Def must still surface — filter must run in SQL, not after LIMIT.
+        val batch = List(
+          sym("pkg/Sql.fooA.",  kind = SymbolKind.Val, name = "fooAlpha", sig = "val fooAlpha"),
+          sym("pkg/Sql.fooB.",  kind = SymbolKind.Val, name = "fooBeta",  sig = "val fooBeta"),
+          sym("pkg/L.fooC().",  kind = SymbolKind.Def, name = "fooGamma", sig = "def fooGamma"),
+        )
+        for
+          _ <- q(_.upsertSymbols(batch))
+          r <- q(_.searchSymbols("foo", 1, Some("Def")))
+        yield assertTrue(r.exists(_.name == "fooGamma"), r.forall(_.kind == SymbolKind.Def))
+      }.provide(layer),
+
+      test("FTS operator chars do not crash the query (regression #2)") {
+        val s = sym("pkg/Star#", name = "StarTrait", sig = "trait StarTrait")
+        for
+          _  <- q(_.upsertSymbol(s))
+          r1 <- q(_.searchSymbols("Star*", 5))       // literal trailing star
+          _  <- q(_.searchSymbols("Foo OR bar", 5))  // FTS OR operator — must not throw
+          _  <- q(_.searchSymbols("(Star", 5))       // unbalanced paren — must not throw
+        yield assertTrue(r1.exists(_.name == "StarTrait"))
+      }.provide(layer),
+
+      test("findByName is exact, not prefix") {
+        val a = sym("pkg/Exact#",       name = "Exact",       sig = "trait Exact")
+        val b = sym("pkg/ExactlyMore#", name = "ExactlyMore", sig = "trait ExactlyMore")
+        for
+          _ <- q(_.upsertSymbols(List(a, b)))
+          r <- q(_.findByName("Exact", 25))
+        yield assertTrue(r.exists(_.name == "Exact"), !r.exists(_.name == "ExactlyMore"))
+      }.provide(layer),
+
     ),
 
     suite("sigSearch")(

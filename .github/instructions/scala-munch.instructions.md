@@ -21,7 +21,7 @@ First check `scala-index://stats` — if symbolCount is 0, the index has not bee
 | Goal | Tool | Key args |
 |------|------|----------|
 | Signature of known symbol | `get_symbol` | `fqn`, `detail: "sig"` |
-| Signature + scaladoc | `get_symbol` | `fqn`, `detail: "sig+doc"` |
+| Signature + scaladoc | `get_symbol` | `fqn`, `detail: "doc"` |
 | All types to understand a symbol | `get_type_context` | `fqn` |
 | Search by name (partial OK) | `search_symbols` | `query` |
 | Find by return/param type shape | `search_by_type` | `signature` |
@@ -44,9 +44,9 @@ When FQN is unknown, call `search_symbols` first, then use the returned `fqn` fi
 | Level | Content | ~Tokens | When to use |
 |-------|---------|---------|-------------|
 | `sig` | Signature only | 20–50 | Default — name and type shape |
-| `sig+doc` | Sig + scaladoc | 50–200 | Behavior unclear from sig alone |
-| `type-ctx` | Sig + all resolved deps | 100–500 | Before implementing against a type |
-| `full` | Body + deps + implicits | 500–2k | Avoid; prefer `type-ctx` |
+| `doc` | Sig + scaladoc | 50–200 | Behavior unclear from sig alone |
+| `type-ctx` | Sig + parents + type params | 100–500 | Before implementing against a type |
+| `full` | Sig + parents + type params | 500–2k | Same as `type-ctx` (no body stored) |
 
 ## Decision Flow
 

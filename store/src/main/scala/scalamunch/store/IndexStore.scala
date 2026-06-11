@@ -21,7 +21,8 @@ trait IndexStore:
   def upsertImplicits(entries: List[ImplicitEntry]): Task[Unit]
   def upsertFile(entry: FileEntry): Task[Unit]
   def getSymbol(fqn: String): Task[Option[ScalaSymbol]]
-  def searchSymbols(query: String, limit: Int = 20): Task[List[ScalaSymbol]]
+  def findByName(name: String, limit: Int = 25): Task[List[ScalaSymbol]]
+  def searchSymbols(query: String, limit: Int = 20, kind: Option[String] = None): Task[List[ScalaSymbol]]
   def searchByType(typeSig: String, limit: Int = 10): Task[List[ScalaSymbol]]
   def getTypeDeps(fqn: String): Task[List[TypeDep]]
   def getReferences(fqn: String, limit: Int = 50): Task[List[TypeDep]]
@@ -175,12 +176,29 @@ private class LiveIndexStore(conn: Connection, writeLock: Semaphore) extends Ind
     sym
   }
 
-  def searchSymbols(query: String, limit: Int): Task[List[ScalaSymbol]] = ZIO.attempt {
-    val ps = conn.prepareStatement(Sql.ftsSearch)
-    // Append * to each word for prefix matching (FTS5 tokenizes camelCase as one token)
-    val ftsQuery = query.trim.split("\\s+").filter(_.nonEmpty).map(w => s"$w*").mkString(" ")
-    ps.setString(1, ftsQuery)
+  def findByName(name: String, limit: Int): Task[List[ScalaSymbol]] = ZIO.attempt {
+    val ps = conn.prepareStatement(Sql.byName)
+    ps.setString(1, name)
     ps.setInt(2, limit)
+    val rs  = ps.executeQuery()
+    val buf = collection.mutable.ListBuffer.empty[ScalaSymbol]
+    while rs.next() do buf += rsToSymbol(rs)
+    rs.close(); ps.close()
+    buf.toList
+  }
+
+  def searchSymbols(query: String, limit: Int, kind: Option[String]): Task[List[ScalaSymbol]] = ZIO.attempt {
+    val ps = conn.prepareStatement(Sql.ftsSearch)
+    // Quote each token and append * for prefix matching (FTS5 tokenizes camelCase as
+    // one token). Quoting makes FTS5 operators (* OR ( : ...) literal, so arbitrary
+    // user input can't produce an fts5 syntax error. Internal quotes are doubled.
+    val ftsQuery = query.trim.split("\\s+").filter(_.nonEmpty)
+      .map(w => "\"" + w.replace("\"", "\"\"") + "\"*").mkString(" ")
+    ps.setString(1, ftsQuery)
+    // kind filter is pushed into SQL so LIMIT applies after filtering, not before.
+    ps.setString(2, kind.orNull)
+    ps.setString(3, kind.orNull)
+    ps.setInt(4, limit)
     val rs  = ps.executeQuery()
     val buf = collection.mutable.ListBuffer.empty[ScalaSymbol]
     while rs.next() do buf += rsToSymbol(rs)
@@ -410,8 +428,12 @@ private object Sql:
     SELECT s.* FROM symbols s
     JOIN symbols_fts f ON s.rowid = f.rowid
     WHERE symbols_fts MATCH ?
+      AND (? IS NULL OR s.kind = ?)
     ORDER BY rank LIMIT ?
   """
+
+  val byName: String =
+    "SELECT * FROM symbols WHERE name = ? ORDER BY kind LIMIT ?"
 
   val sigSearch: String =
     "SELECT * FROM symbols WHERE signature LIKE ? ORDER BY length(signature) LIMIT ?"
