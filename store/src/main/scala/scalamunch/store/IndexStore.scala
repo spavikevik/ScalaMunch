@@ -39,19 +39,39 @@ trait IndexStore:
 object IndexStore:
 
   def open(dbPath: Path): ZIO[Scope, Throwable, IndexStore] =
-    ZIO.acquireRelease(
-      for
-        lock <- Semaphore.make(1)
-        impl <- ZIO.attempt {
-                  Class.forName("org.sqlite.JDBC")
-                  val url  = s"jdbc:sqlite:${dbPath.toAbsolutePath}"
-                  val conn = DriverManager.getConnection(url)
-                  val impl = LiveIndexStore(conn, lock)
-                  impl.initSchema()
-                  impl
-                }
-      yield impl
-    )(store => store.close.orDie)
+    ZIO.acquireRelease(openWithBusyRetry(openOnDisk(dbPath)))(store => store.close.orDie)
+
+  /** Concurrent processes opening the same db file (e.g. several MCP client sessions
+   *  against one project) can hit SQLITE_BUSY while acquiring the write lock needed
+   *  for the WAL-mode pragma or the schema/trigger DDL in initSchema — busy_timeout
+   *  alone doesn't reliably cover every statement in that sequence, so retry the whole
+   *  connection-open attempt on a fresh connection instead.
+   */
+  private def openWithBusyRetry(attempt: Task[LiveIndexStore]): Task[LiveIndexStore] =
+    attempt.retry(
+      Schedule.recurWhile(isSqliteBusy) && Schedule.exponential(50.millis) && Schedule.recurs(8)
+    )
+
+  private def isSqliteBusy(t: Throwable): Boolean = t match
+    case e: org.sqlite.SQLiteException => e.getResultCode == org.sqlite.SQLiteErrorCode.SQLITE_BUSY
+    case _                             => false
+
+  private def openOnDisk(dbPath: Path): Task[LiveIndexStore] =
+    for
+      lock <- Semaphore.make(1)
+      impl <- ZIO.attempt {
+                Class.forName("org.sqlite.JDBC")
+                val url  = s"jdbc:sqlite:${dbPath.toAbsolutePath}"
+                val conn = DriverManager.getConnection(url)
+                val impl = LiveIndexStore(conn, lock)
+                try impl.initSchema()
+                catch
+                  case e: Throwable =>
+                    conn.close()
+                    throw e
+                impl
+              }
+    yield impl
 
   def inMemory: ZIO[Scope, Throwable, IndexStore] =
     ZIO.acquireRelease(
