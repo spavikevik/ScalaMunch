@@ -249,7 +249,7 @@ ScalaMunch exposes an MCP (Model Context Protocol) server over stdio, compatible
 >   }
 > }
 > ```
-> Adjust the jar path if you installed from a release archive rather than building from source. This form works identically on Linux/Mac too. The `bin/scala-munch-mcp*` wrappers remain useful for interactive terminal use.
+> Adjust the jar path if you installed from a release archive rather than building from source. This form works identically on Linux/Mac too. On Windows, also update any `.mcp.json`/client config that points at `bin/scala-munch-mcp` to use `command: "java"` as above; the `bin/scala-munch-mcp*` wrappers remain useful for interactive terminal use.
 
 ### Claude Code
 
