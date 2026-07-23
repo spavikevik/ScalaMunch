@@ -64,6 +64,7 @@ object IndexStore:
                 val url  = s"jdbc:sqlite:${dbPath.toAbsolutePath}"
                 val conn = DriverManager.getConnection(url)
                 val impl = LiveIndexStore(conn, lock)
+                try impl.initSchema()
                 catch
                   case e: Throwable =>
                     try conn.close()
