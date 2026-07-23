@@ -1,8 +1,13 @@
 package scalamunch.store
 
 object Schema:
-  /** Run these first, in autocommit mode (SQLite WAL change fails inside transactions). */
+  /** Run these first, in autocommit mode (SQLite WAL change fails inside transactions).
+   *  busy_timeout goes first: it must be in effect before journal_mode/DDL run, since
+   *  those can themselves contend for the write lock when multiple processes open the
+   *  same db concurrently (e.g. several MCP client sessions against one project).
+   */
   val pragmas: List[String] = List(
+    "PRAGMA busy_timeout = 5000",
     "PRAGMA journal_mode = WAL",
     "PRAGMA foreign_keys = ON"
   )

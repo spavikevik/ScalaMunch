@@ -237,6 +237,20 @@ Watches the source tree with NIO WatchService. On any `.scala` change, waits for
 
 ScalaMunch exposes an MCP (Model Context Protocol) server over stdio, compatible with **Claude Code**, **GitHub Copilot**, **Cursor**, and any MCP-capable client.
 
+> **Windows:** MCP clients spawn the server process directly, without a shell — `bin/scala-munch-mcp` (bash) and `bin/scala-munch-mcp.cmd` cannot be launched that way on Windows (`.cmd`/`.bat` require `shell: true`, which most MCP clients don't set) and the connection fails silently or with a generic error. Point `command` at `java` directly instead, e.g.:
+> ```json
+> {
+>   "mcpServers": {
+>     "scala-munch": {
+>       "type": "stdio",
+>       "command": "java",
+>       "args": ["-jar", "mcp-server/target/scala-3.3.3/scala-munch-mcp-assembly.jar", "--db", ".scala-munch.db"]
+>     }
+>   }
+> }
+> ```
+> Adjust the jar path if you installed from a release archive rather than building from source. This form works identically on Linux/Mac too. On Windows, also update any `.mcp.json`/client config that points at `bin/scala-munch-mcp` to use `command: "java"` as above; the `bin/scala-munch-mcp*` wrappers remain useful for interactive terminal use.
+
 ### Claude Code
 
 After running `bin/install.sh`, the project-level `.mcp.json` is already configured:
