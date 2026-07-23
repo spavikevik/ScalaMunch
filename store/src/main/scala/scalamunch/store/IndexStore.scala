@@ -52,9 +52,15 @@ object IndexStore:
       Schedule.recurWhile(isSqliteBusy) && Schedule.exponential(50.millis) && Schedule.recurs(8)
     )
 
+  /** Match the whole SQLITE_BUSY family, not just the primary code: under WAL, concurrent
+   *  opens also surface extended codes like SQLITE_BUSY_SNAPSHOT / SQLITE_BUSY_RECOVERY,
+   *  which share the low byte (5) of SQLITE_BUSY. Retrying only on the exact SQLITE_BUSY
+   *  code let SQLITE_BUSY_SNAPSHOT leak through and crash the open under heavier contention.
+   */
   private def isSqliteBusy(t: Throwable): Boolean = t match
-    case e: org.sqlite.SQLiteException => e.getResultCode == org.sqlite.SQLiteErrorCode.SQLITE_BUSY
-    case _                             => false
+    case e: org.sqlite.SQLiteException =>
+      (e.getResultCode.code & 0xff) == org.sqlite.SQLiteErrorCode.SQLITE_BUSY.code
+    case _ => false
 
   private def openOnDisk(dbPath: Path): Task[LiveIndexStore] =
     for
