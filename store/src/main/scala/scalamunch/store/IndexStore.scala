@@ -49,7 +49,13 @@ object IndexStore:
    */
   private def openWithBusyRetry(attempt: Task[LiveIndexStore]): Task[LiveIndexStore] =
     attempt.retry(
-      Schedule.recurWhile(isSqliteBusy) && Schedule.exponential(50.millis) && Schedule.recurs(8)
+      // Retry only on the SQLITE_BUSY family, with jittered backoff capped at 500ms so a
+      // burst of concurrent opens de-syncs instead of thundering. 8 retries proved too few
+      // under many concurrent opens on CPU-constrained hosts (2-core CI): the DDL lock
+      // contention outlasted the budget and a plain SQLITE_BUSY still escaped.
+      Schedule.recurWhile(isSqliteBusy) &&
+        (Schedule.exponential(20.millis) || Schedule.spaced(500.millis)).jittered &&
+        Schedule.recurs(24)
     )
 
   /** Match the whole SQLITE_BUSY family, not just the primary code: under WAL, concurrent
