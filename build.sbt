@@ -7,7 +7,7 @@ val declineV    = "2.6.2"
 val zioJsonV    = "0.7.45"
 
 ThisBuild / scalaVersion  := scalaV
-ThisBuild / version       := "0.1.0-alpha.3"
+ThisBuild / version       := "0.1.0-alpha.4"
 ThisBuild / organization  := "io.scalamunch"
 ThisBuild / versionScheme := Some("semver-spec")
 
